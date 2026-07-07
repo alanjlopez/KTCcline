@@ -19,6 +19,8 @@ window.KTC = window.KTC || {};
     }
 
     shake(mag, dur = 0.25) {
+      mag *= Particles.shakeMul;
+      if (mag <= 0) return;
       // Take the stronger of current vs incoming so big hits still register.
       if (mag > this.shakeMag) this.shakeMag = mag;
       this.shakeT = Math.max(this.shakeT, dur);
@@ -187,6 +189,8 @@ window.KTC = window.KTC || {};
       this.shakeT = 0; this.shakeMag = 0; this.shakeX = 0; this.shakeY = 0;
     }
   }
+
+  Particles.shakeMul = 1;   // global screen-shake scale (from settings)
 
   KTC.Particles = Particles;
 })(window.KTC);

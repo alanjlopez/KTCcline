@@ -99,7 +99,7 @@ window.KTC = window.KTC || {};
         const p = game.player;
         if (!p.dead && !p.invuln() &&
             U.circleHit(this.x, this.y, this.size + 1, p.x, p.y - p.hh * 0.4, p.r)) {
-          p.hurt(this.dmg, game);
+          p.hurt(this.dmg, game, this.x, this.y);
           game.particles.blood(this.x, this.y, this.angle);
           this.dead = true;
         }

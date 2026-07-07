@@ -55,6 +55,7 @@ window.KTC = window.KTC || {};
       this.footT = 0;
       this.recoil = 0;
       this.cheatUsed = false;       // Snake Oil: one save per raid
+      this.perfectBuffT = 0;        // active-reload speed buff
     }
 
     applyStats(st) {
@@ -85,6 +86,7 @@ window.KTC = window.KTC || {};
       this.magBonusMods = game.mods ? game.mods.magBonus : 0;
       this.fireCd -= dt;
       if (this.rollCd > 0) this.rollCd -= dt;
+      if (this.perfectBuffT > 0) this.perfectBuffT -= dt;
       if (this.hitInvulnT > 0) this.hitInvulnT -= dt;
       if (this.flashT > 0) this.flashT -= dt;
       this.recoil = U.approach(this.recoil, 0, dt * 40);
@@ -98,11 +100,12 @@ window.KTC = window.KTC || {};
       if (In.anyDown(['KeyD', 'ArrowRight'])) ix += 1;
       if (In.anyDown(['KeyW', 'ArrowUp'])) iy -= 1;
       if (In.anyDown(['KeyS', 'ArrowDown'])) iy += 1;
+      if (In.pad.active) { ix += In.pad.mx; iy += In.pad.my; }
       const mlen = Math.hypot(ix, iy) || 1;
       ix /= mlen; iy /= mlen;
 
       // dodge roll
-      if (In.justPressed('Space') && this.rollT <= 0 && this.rollCd <= 0) {
+      if (In.actPressed('dodge') && this.rollT <= 0 && this.rollCd <= 0) {
         this.rollT = ROLL_DUR;
         this.rollDir = (ix || iy) ? Math.atan2(iy, ix) : this.aim;
         this.rollCd = ROLL_DUR + this.dodgeCd * game.mods.dodgeCdMult;
@@ -149,7 +152,7 @@ window.KTC = window.KTC || {};
         if (d2 < bestD2) { bestD2 = d2; this.nearContainer = c; }
       }
       this.looting = false;
-      if (this.nearContainer && In.keys['KeyE'] && !this.rolling() &&
+      if (this.nearContainer && In.actDown('loot') && !this.rolling() &&
           !(ix || iy) && this.lootStunT <= 0) {
         const c = this.nearContainer;
         this.looting = true;
@@ -163,7 +166,19 @@ window.KTC = window.KTC || {};
       const mag = this.magSize();
       const showdown = game.showdown && game.showdown.active;
       if (showdown) { this.ammo = mag; this.reloading = false; }
-      if (In.justPressed('KeyR') && !this.reloading && !this.looting && this.ammo < mag) this.startReload(game);
+      if (this.reloading && In.actPressed('reload')) {
+        // active reload — tap R inside the sweet spot for an instant, buffed reload
+        const frac = 1 - this.reloadT / this.reloadTotal;
+        const W = KTC.Tune.reload;
+        if (frac >= W.windowStart && frac <= W.windowEnd) {
+          this.reloadT = 0; this.perfectBuffT = 3;
+          KTC.Audio.perfect();
+          game.particles.text(this.x, this.y - this.hh - 6, 'PERFECT!', '#e3c06a', { life: 0.7, size: 7 });
+        } else {
+          this.reloadT = Math.min(this.reloadTotal, this.reloadT + this.reloadTotal * 0.3);  // jam
+          KTC.Audio.hit();
+        }
+      } else if (In.actPressed('reload') && !this.reloading && !this.looting && this.ammo < mag) this.startReload(game);
       if (this.ammo <= 0 && !this.reloading && !this.looting && !showdown) this.startReload(game);
       if (this.reloading) {
         this.reloadT -= dt;
@@ -178,7 +193,8 @@ window.KTC = window.KTC || {};
       // shooting (blocked while reloading, mid-roll, or looting)
       if (!this.reloading && !this.rolling() && !this.looting && (showdown || this.ammo > 0) && this.fireCd <= 0) {
         const w = this.weapon();
-        const wantFire = (w.auto || showdown) ? In.mouse.down : In.mouse.clicked;
+        const padShoot = In.pad.shoot;
+        const wantFire = (w.auto || showdown || padShoot) ? (In.mouse.down || padShoot) : In.mouse.clicked;
         if (wantFire) this.shoot(game, showdown);
       }
     }
@@ -214,7 +230,8 @@ window.KTC = window.KTC || {};
       }
       if (!free) this.ammo--;
       const hot = m.hotStreak && game.run.combo >= 5 ? 0.7 : 1;
-      this.fireCd = w.fireRate * m.fireRateMult * hot * (free ? 0.6 : 1);
+      const perfect = this.perfectBuffT > 0 ? 0.82 : 1;
+      this.fireCd = w.fireRate * m.fireRateMult * hot * perfect * (free ? 0.6 : 1);
       this.flashT = 0.05;
       this.recoil = w.kick;
       game.particles.spark(mx, my, this.aim);
@@ -234,13 +251,13 @@ window.KTC = window.KTC || {};
       KTC.Audio.reload();
     }
 
-    hurt(dmg, game) {
+    hurt(dmg, game, sx, sy) {
       if (this.dead || this.invuln()) return;
       this.hp -= dmg;
       this.hitInvulnT = HIT_IFRAME;
       this.flashT = 0.1;
       this.lootStunT = 0.6;         // getting hit interrupts any loot channel
-      game.onPlayerDamaged(dmg);
+      game.onPlayerDamaged(dmg, sx, sy);
       game.particles.shake(7, 0.3);
       KTC.Audio.playerHurt();
       if (this.hp <= 0) {

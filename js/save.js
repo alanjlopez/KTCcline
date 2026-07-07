@@ -30,6 +30,7 @@ window.KTC = window.KTC || {};
       loadout: [],                  // equipped trinkets brought into a raid
       upgrades: { maxHp: 0, ammo: 0, reload: 0, dodge: 0, speed: 0, satchel: 0, slots: 0 },
       stats: { extractions: 0, raids: 0, deaths: 0, bestLoot: 0, kills: 0 },
+      settings: { volume: 0.35, shake: 1, colorblind: false, damageNumbers: true, difficulty: 'outlaw' },
       muted: false,
     };
   }
@@ -61,6 +62,7 @@ window.KTC = window.KTC || {};
       const loadout = Array.isArray(data.loadout) ? data.loadout : [];
       const materials = Object.assign({}, d.materials, data.materials || {});
       const benches = Object.assign({}, d.benches, data.benches || {});
+      const settings = Object.assign({}, d.settings, data.settings || {});
       data = Object.assign(d, data);
       data.upgrades = upgrades;
       data.stats = stats;
@@ -69,6 +71,7 @@ window.KTC = window.KTC || {};
       data.loadout = loadout;
       data.materials = materials;
       data.benches = benches;
+      data.settings = settings;
       this._mem = data;
       return data;
     },

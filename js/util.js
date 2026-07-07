@@ -45,20 +45,55 @@ window.KTC = window.KTC || {};
       return d;
     },
 
+    // Seeded RNG (mulberry32). Returns a function() -> [0,1). Used so a daily
+    // seed reproduces the same world/loot. `Util.rng` points at the active
+    // source (Math.random by default) so existing rand/randInt/pick stay seeded.
+    makeRNG(seed) {
+      let a = (seed >>> 0) || 1;
+      return function () {
+        a |= 0; a = (a + 0x6D2B79F5) | 0;
+        let t = Math.imul(a ^ (a >>> 15), 1 | a);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    },
+    // Hash a string to a 32-bit seed (for daily codes etc.).
+    hashSeed(str) {
+      let h = 2166136261 >>> 0;
+      for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+      return h >>> 0;
+    },
+    rng: Math.random,               // active random source
+    useSeed(seed) { Util.rng = seed == null ? Math.random : Util.makeRNG(seed); },
+
+    // Smooth value noise in [0,1] over a hashed integer lattice.
+    noise2D(x, y) {
+      const xi = Math.floor(x), yi = Math.floor(y);
+      const xf = x - xi, yf = y - yi;
+      const h = (a, b) => {
+        let n = Math.imul((a & 0xffff) ^ 0x9e37, 0x85eb) ^ Math.imul((b & 0xffff) ^ 0xc2b2, 0x27d4);
+        n = (n ^ (n >>> 13)) >>> 0;
+        return (n & 0xffff) / 0xffff;
+      };
+      const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+      const a = h(xi, yi), b = h(xi + 1, yi), c = h(xi, yi + 1), d = h(xi + 1, yi + 1);
+      return Util.lerp(Util.lerp(a, b, u), Util.lerp(c, d, u), v);
+    },
+
     rand(min, max) {
-      return min + Math.random() * (max - min);
+      return min + Util.rng() * (max - min);
     },
 
     randInt(min, max) {
-      return Math.floor(min + Math.random() * (max - min + 1));
+      return Math.floor(min + Util.rng() * (max - min + 1));
     },
 
     pick(arr) {
-      return arr[Math.floor(Math.random() * arr.length)];
+      return arr[Math.floor(Util.rng() * arr.length)];
     },
 
     chance(p) {
-      return Math.random() < p;
+      return Util.rng() < p;
     },
 
     // Circle vs circle overlap.

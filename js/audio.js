@@ -29,9 +29,14 @@ window.KTC = window.KTC || {};
       if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
     },
 
+    volume: 0.35,
     setMuted(m) {
       this.muted = m;
-      if (this.master) this.master.gain.value = m ? 0 : 0.35;
+      if (this.master) this.master.gain.value = m ? 0 : this.volume;
+    },
+    setVolume(v) {
+      this.volume = v;
+      if (this.master && !this.muted) this.master.gain.value = v;
     },
 
     _env(type, freq, dur, vol, sweep) {
@@ -95,6 +100,8 @@ window.KTC = window.KTC || {};
     showdown() { this._env('sawtooth', 320, 0.6, 0.28, 120); this._noise(0.5, 0.2, 600); setTimeout(() => this._env('triangle', 523, 0.3, 0.2, 784), 120); },
     // base / crafting cues
     craft() { this._env('square', 180, 0.06, 0.16, 140); setTimeout(() => this._noise(0.1, 0.2, 1600), 60); setTimeout(() => this._env('triangle', 660, 0.12, 0.16, 880), 120); },
+    heartbeat() { this._env('sine', 90, 0.12, 0.3, 60); setTimeout(() => this._env('sine', 80, 0.14, 0.24, 55), 150); },
+    perfect() { this._env('triangle', 880, 0.06, 0.18, 1320); setTimeout(() => this._env('triangle', 1320, 0.08, 0.16, 1600), 60); },
     extractDone() { [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => this._env('triangle', f, 0.16, 0.2, f), i * 90)); },
     death() { [330, 262, 196, 130].forEach((f, i) => setTimeout(() => this._env('sawtooth', f, 0.25, 0.22, f * 0.8), i * 130)); },
     click() { this._env('square', 220, 0.03, 0.1, 180); },

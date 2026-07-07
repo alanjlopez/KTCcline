@@ -56,8 +56,12 @@ window.KTC = window.KTC || {};
       this.hud.innerHTML = '';
       this.gunBadge = el('canvas', { class: 'gun-badge', width: 40, height: 26 });
       this.ammoRow = el('div', { class: 'ammo-row' });
-      this.reloadBar = el('div', { class: 'reload-bar' }, [el('div', { class: 'reload-fill' })]);
-      this.reloadFill = this.reloadBar.firstChild;
+      this.reloadFill = el('div', { class: 'reload-fill' });
+      this.reloadMark = el('div', { class: 'reload-mark' });
+      const RW = KTC.Tune.reload;
+      this.reloadMark.style.left = (RW.windowStart * 100) + '%';
+      this.reloadMark.style.width = ((RW.windowEnd - RW.windowStart) * 100) + '%';
+      this.reloadBar = el('div', { class: 'reload-bar' }, [this.reloadFill, this.reloadMark]);
       this.weaponName = el('div', { class: 'weapon-name' });
       const wpanel = el('div', { class: 'hud-panel weapon-panel' }, [
         this.gunBadge,
@@ -142,6 +146,7 @@ window.KTC = window.KTC || {};
         ]),
         el('div', { class: 'menu-buttons' }, [
           this.bigBtn('PLAY', () => { KTC.Audio.click(); g.enterBase(); }),
+          this.btn('SETTINGS', () => { KTC.Audio.click(); this.openSettings(false); }),
           this.btn(g.save.muted ? 'SOUND: OFF' : 'SOUND: ON', (b) => {
             g.save.muted = !g.save.muted; KTC.Audio.setMuted(g.save.muted);
             KTC.Save.save(g.save); b.textContent = g.save.muted ? 'SOUND: OFF' : 'SOUND: ON';
@@ -318,9 +323,60 @@ window.KTC = window.KTC || {};
         el('h2', { class: 'screen-title', text: 'PAUSED' }),
         el('div', { class: 'menu-buttons' }, [
           this.bigBtn('RESUME', () => { KTC.Audio.click(); g.setState('raid'); }),
+          this.btn('SETTINGS', () => { KTC.Audio.click(); this.openSettings(true); }),
           this.btn('ABANDON RUN', () => { KTC.Audio.click(); g.save.stats.raids++; KTC.Save.save(g.save); g.enterBase(); }),
         ]),
         el('div', { class: 'hint', text: 'Abandoning leaves everything you were carrying in the field.' }),
+      ]);
+    }
+
+    // ---------------- settings ----------------
+    openSettings(fromPause) { this.root.querySelectorAll('.screen').forEach((n) => n.remove()); this.renderSettings(fromPause); }
+    reSettings(fromPause) { this.root.querySelectorAll('.screen').forEach((n) => n.remove()); this.renderSettings(fromPause); }
+    startRebind(a, fromPause) {
+      this._rebind = a; this.reSettings(fromPause);
+      const handler = (e) => {
+        e.preventDefault(); window.removeEventListener('keydown', handler, true);
+        KTC.Input.binds[a] = e.code;
+        const s = this.game.save.settings; s.keys = Object.assign({}, s.keys, { [a]: e.code });
+        KTC.Save.save(this.game.save); this._rebind = null; this.reSettings(fromPause);
+      };
+      window.addEventListener('keydown', handler, true);
+    }
+    renderSettings(fromPause) {
+      const g = this.game, st = g.save.settings;
+      const persist = () => { KTC.Save.save(g.save); g.applySettings(); this.reSettings(fromPause); };
+      const stepRow = (label, dec, fmt) => el('div', { class: 'set-row' }, [
+        el('span', { class: 'set-label', text: label }),
+        el('div', { class: 'set-ctl' }, [
+          this.smallBtn('−', () => { dec(-1); persist(); }),
+          el('span', { class: 'set-val', text: fmt() }),
+          this.smallBtn('+', () => { dec(1); persist(); }),
+        ]),
+      ]);
+      const toggleRow = (label, key) => el('div', { class: 'set-row' }, [
+        el('span', { class: 'set-label', text: label }),
+        this.smallBtn(st[key] ? 'ON' : 'OFF', () => { st[key] = !st[key]; persist(); }),
+      ]);
+      const diffs = ['rookie', 'outlaw', 'legend'];
+      const rebinds = Object.keys(KTC.Input.binds).map((a) => el('div', { class: 'set-row rebind' }, [
+        el('span', { class: 'set-label', text: a }),
+        this.smallBtn(this._rebind === a ? 'press…' : KTC.Input.binds[a], () => this.startRebind(a, fromPause)),
+      ]));
+      this.screen('settings', [
+        el('h2', { class: 'screen-title', text: 'SETTINGS' }),
+        el('div', { class: 'set-list' }, [
+          stepRow('Volume', (d) => { st.volume = U.clamp(+(st.volume + d * 0.1).toFixed(2), 0, 1); }, () => Math.round(st.volume * 100) + '%'),
+          stepRow('Screen shake', (d) => { st.shake = U.clamp(+(st.shake + d * 0.5).toFixed(1), 0, 2); }, () => st.shake.toFixed(1)),
+          stepRow('Difficulty', (d) => { let i = diffs.indexOf(st.difficulty); st.difficulty = diffs[(i + d + 3) % 3]; }, () => KTC.Tune.difficulty[st.difficulty].name),
+          toggleRow('Colorblind palette', 'colorblind'),
+          toggleRow('Combat text', 'damageNumbers'),
+        ]),
+        el('div', { class: 'section-label', text: 'REBIND KEYS (movement stays WASD/arrows)' }),
+        el('div', { class: 'rebind-grid' }, rebinds),
+        el('div', { class: 'menu-buttons' }, [
+          this.bigBtn('BACK', () => { KTC.Audio.click(); this._rebind = null; if (fromPause) g.setState('paused'); else g.setState('menu'); }),
+        ]),
       ]);
     }
 
@@ -396,7 +452,7 @@ window.KTC = window.KTC || {};
       const zone = g.level.zoneAt(p.x, p.y);
       this.threatWrap.querySelector('.threat-label').textContent = (zone ? KTC.Zones.biome(zone.biome).name.toUpperCase() : 'THREAT');
 
-      if (KTC.Input.keys['Tab']) {
+      if (KTC.Input.actDown('satchel')) {
         const stamp = r.satchel.length + '/' + r.cap + this.matHtml(r.materials);
         if (stamp !== this._satchelStamp) {
           this._satchelStamp = stamp;

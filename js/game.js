@@ -23,7 +23,13 @@ window.KTC = window.KTC || {};
       this.save = KTC.Save.load();
       this.raidsCleared = 0;
       this.HOLD_TIME = HOLD_TIME;
+      this.diff = KTC.Tune.difficulty.outlaw;
+      this._hitStop = 0;
+      this.decals = [];
+      this.damageDir = 0; this.damageDirT = 0;
+      this._heartT = 0;
       KTC.Audio.setMuted(this.save.muted);
+      this.applySettings();
 
       this.level = new KTC.Level();
       this.particles = new KTC.Particles();
@@ -75,6 +81,44 @@ window.KTC = window.KTC || {};
       In.clear();
     }
 
+    // mirror saved settings into the live systems
+    applySettings() {
+      const st = this.save.settings || {};
+      KTC.Audio.setVolume(st.volume == null ? 0.35 : st.volume);
+      KTC.Particles.shakeMul = st.shake == null ? 1 : st.shake;
+      document.documentElement.classList.toggle('colorblind', !!st.colorblind);
+      if (st.keys) Object.assign(KTC.Input.binds, st.keys);
+    }
+
+    // brief world freeze for punch on kills/explosions
+    hitStop(sec) { if (sec > this._hitStop) this._hitStop = sec; }
+
+    // capped persistent ground marks (blood / scorch)
+    addDecal(x, y, type) {
+      this.decals.push({ x, y, type, r: type === 'scorch' ? U.rand(14, 22) : U.rand(4, 8), rot: U.rand(0, U.TAU), a: type === 'scorch' ? 0.5 : 0.55 });
+      if (this.decals.length > KTC.Tune.feel.decalMax) this.decals.shift();
+    }
+
+    renderDecals(ctx) {
+      for (const d of this.decals) {
+        ctx.save();
+        ctx.translate(d.x, d.y);
+        ctx.rotate(d.rot);
+        ctx.globalAlpha = d.a;
+        if (d.type === 'scorch') {
+          ctx.fillStyle = '#1a1512';
+          ctx.beginPath(); ctx.ellipse(0, 0, d.r, d.r * 0.6, 0, 0, U.TAU); ctx.fill();
+        } else {
+          ctx.fillStyle = S.PAL.bloodDark;
+          ctx.beginPath(); ctx.ellipse(0, 0, d.r, d.r * 0.7, 0, 0, U.TAU); ctx.fill();
+          ctx.fillStyle = S.PAL.blood;
+          ctx.beginPath(); ctx.ellipse(-d.r * 0.3, 0, d.r * 0.4, d.r * 0.3, 0, 0, U.TAU); ctx.fill();
+        }
+        ctx.restore();
+      }
+      ctx.globalAlpha = 1;
+    }
+
     // ---------------- base hub ----------------
     enterBase() {
       KTC.Audio.unlock();
@@ -98,6 +142,7 @@ window.KTC = window.KTC || {};
       this.camera.x = this.player.x;
       this.camera.y = this.player.y;
       this.setState('base');
+      if (!this.save.tutorialSeen) this.ui.toast('Welcome to camp — walk to a bench and press E. Deploy at the Map Table.');
     }
 
     openBench(type) {
@@ -114,6 +159,7 @@ window.KTC = window.KTC || {};
     // ---------------- run lifecycle ----------------
     startRun() {
       KTC.Audio.unlock();
+      this.diff = KTC.Tune.difficulty[this.save.settings.difficulty] || KTC.Tune.difficulty.outlaw;
       this.level.generateWorld();
       // trinkets you brought from the base (your insured loadout)
       this.trinkets = (this.save.loadout || []).filter((id) => KTC.Trinkets.get(id) && this.save.trinkets[id]);
@@ -147,16 +193,19 @@ window.KTC = window.KTC || {};
       this.threat = 0; this._threatTier = 0;
       this.showdown = { meter: 0, active: false, t: 0 };
       this.enemyScale = 1;
-      this.damageFlash = 0;
+      this.damageFlash = 0; this.damageDirT = 0; this._heartT = 0; this._hitStop = 0;
+      this.decals.length = 0;
       this._fullToastT = 0;
       this.baseMenu = null;
       this.emit('raidstart');
       this.setState('raid');
+      if (!this.save.tutorialSeen) { this.save.tutorialSeen = true; KTC.Save.save(this.save); this.ui.toast('Loot with E · reach a stagecoach to extract · Q for showdown'); }
     }
 
     // materials feed the crafting benches; banked on extract, lost on death
     addMaterial(type, amount, x, y) {
       if (!this.run.materials) return;
+      amount = Math.max(1, Math.round(amount * this.diff.rewardMul));
       this.run.materials[type] = (this.run.materials[type] || 0) + amount;
       const m = KTC.Zones.MATERIALS[type] || { icon: '?', color: '#fff' };
       this.particles.text(x, y - 10, m.icon + '+' + amount, m.color, { life: 0.7, size: 6 });
@@ -177,7 +226,7 @@ window.KTC = window.KTC || {};
       }
     }
 
-    gainGold(v) { if (this.run) this.run.gold += Math.max(0, Math.round(v * this.mods.goldMult)); }
+    gainGold(v) { if (this.run) this.run.gold += Math.max(0, Math.round(v * this.mods.goldMult * this.diff.rewardMul)); }
     healPlayer(n) {
       const p = this.player;
       if (p && !p.dead && p.hp < p.maxHp) {
@@ -191,6 +240,8 @@ window.KTC = window.KTC || {};
       this.particles.burst(x, y, 22, { color: ['#f6e0a0', '#f0c060', '#e07a3a', '#6b5a45'], speedMin: 40, speedMax: 220, lifeMin: 0.2, lifeMax: 0.55, size: 3, grav: 40 });
       this.particles.spawn(x, y, { vx: 0, vy: 0, life: 0.18, size: radius * 1.6, color: 'rgba(255,220,150,0.5)', drag: 1 });
       this.particles.shake(5, 0.22);
+      this.hitStop(KTC.Tune.feel.hitStopBoss);
+      this.addDecal(x, y, 'scorch');
       KTC.Audio.explosion();
       for (const e of this.enemies) {
         if (e.dead) continue;
@@ -227,6 +278,8 @@ window.KTC = window.KTC || {};
       r.combo++;
       r.comboT = 3;
       r.comboMax = Math.max(r.comboMax, r.combo);
+      this.hitStop(KTC.Tune.feel.hitStopKill);
+      this.addDecal(e.x, e.y, 'blood');
 
       // showdown meter builds on kills (faster with combo + Deadeye Battery)
       if (!this.showdown.active) {
@@ -238,7 +291,7 @@ window.KTC = window.KTC || {};
       const bonus = Math.floor(r.combo / 3);
       if (bonus > 0) {
         this.gainGold(bonus);
-        this.particles.text(e.x, e.y - e.hh - 6, `x${r.combo}`, '#e3c06a', { life: 0.7, size: 7 });
+        if (this.save.settings.damageNumbers) this.particles.text(e.x, e.y - e.hh - 6, `x${r.combo}`, '#e3c06a', { life: 0.7, size: 7 });
       }
 
       // on-kill effects — Twin Fang runs them twice
@@ -260,7 +313,7 @@ window.KTC = window.KTC || {};
 
     // gold is a weightless counter, carried loose in your pockets
     addGold(value, x, y) {
-      const v = Math.max(0, Math.round(value * this.mods.goldMult));
+      const v = Math.max(0, Math.round(value * this.mods.goldMult * this.diff.rewardMul));
       this.run.gold += v;
       this.particles.text(x, y - 10, '+' + v, '#e3c06a', { life: 0.7, size: 6 });
     }
@@ -341,9 +394,10 @@ window.KTC = window.KTC || {};
       return r.gold + r.satchel.reduce((sum, it) => sum + it.value, 0);
     }
 
-    onPlayerDamaged() {
+    onPlayerDamaged(dmg, sx, sy) {
       this.damageFlash = 0.5;
       this.run.combo = 0;
+      if (sx != null) { this.damageDir = U.angle(this.player.x, this.player.y, sx, sy); this.damageDirT = 1.2; }
     }
 
     onPlayerDeath() {
@@ -380,6 +434,15 @@ window.KTC = window.KTC || {};
       let dt = (t - this._last) / 1000;
       this._last = t;
       if (dt > 0.05) dt = 0.05;         // clamp big hitches / tab-outs
+      In.pollGamepad();
+      // hit-stop: freeze the sim (still render) for a couple of frames of punch.
+      // Don't clear input edges here — buffered presses should survive the freeze.
+      if (this._hitStop > 0 && this.state === 'raid') {
+        this._hitStop -= dt;
+        this.render();
+        requestAnimationFrame((n) => this.frame(n));
+        return;
+      }
       this.update(dt);
       this.render();
       In.endFrame();
@@ -399,7 +462,7 @@ window.KTC = window.KTC || {};
       if (this.state === 'paused') return;
       if (this.state !== 'raid') return;
 
-      if (In.justPressed('Escape')) { this.setState('paused'); return; }
+      if (In.actPressed('pause')) { this.setState('paused'); return; }
 
       // camera + world-space mouse (computed before player so aim is current)
       this.updateCamera(dt);
@@ -409,6 +472,11 @@ window.KTC = window.KTC || {};
       In.mouse.wy = camTop + In.mouse.sy / ZOOM;
 
       const p = this.player;
+      // gamepad right-stick aim overrides the mouse point
+      if (In.pad.active && In.pad.aimMag > 0.35) {
+        In.mouse.wx = p.x + In.pad.aimX * 140;
+        In.mouse.wy = p.y - p.hh * 0.4 + In.pad.aimY * 140;
+      }
 
       // death slow-mo → show screen
       if (p.dead) {
@@ -427,12 +495,17 @@ window.KTC = window.KTC || {};
       // you linger and the farther you push, the more crows pour in
       const zone = this.level.zoneAt(p.x, p.y);
       const zt = zone ? KTC.Zones.biome(zone.biome).threat : 0.3;
-      this.threat += dt * (0.05 + zt * 0.05);
-      const tier = Math.floor(this.threat / 5);
+      this.threat += dt * (KTC.Tune.threat.base + zt * KTC.Tune.threat.zoneMul) * this.diff.threatMul;
+      const tier = Math.floor(this.threat / KTC.Tune.threat.milestone);
       if (tier > this._threatTier) { this._threatTier = tier; this.ui.toast('The crows are closing in…'); this.particles.shake(3, 0.3); }
 
+      // low-HP heartbeat + fading directional damage indicator
+      if (this.damageDirT > 0) this.damageDirT -= dt;
+      if (p.hp <= 2 && !p.dead) { this._heartT -= dt; if (this._heartT <= 0) { this._heartT = 0.85; KTC.Audio.heartbeat(); } }
+      else this._heartT = 0;
+
       // showdown: trigger with Q or right-click, then slow the crows
-      if (In.justPressed('KeyQ') || In.mouse.rclicked) this.tryShowdown();
+      if (In.actPressed('showdown') || In.mouse.rclicked) this.tryShowdown();
       this.updateShowdown(dt);
       const es = this.enemyScale;
 
@@ -500,10 +573,10 @@ window.KTC = window.KTC || {};
       }
 
       if (this.baseMenu) {
-        if (In.justPressed('Escape')) this.closeBench();
+        if (In.actPressed('pause')) this.closeBench();
       } else {
         this.player.update(dt, this);           // walk around (combat is disabled in base)
-        if (this.nearBench && In.justPressed('KeyE')) this.openBench(this.nearBench.type);
+        if (this.nearBench && In.actPressed('loot')) this.openBench(this.nearBench.type);
       }
       this.particles.update(dt);
       this.ui.updateBaseHUD();
@@ -512,6 +585,12 @@ window.KTC = window.KTC || {};
     updateCamera(dt) {
       const vw = this.canvas.width / ZOOM, vh = this.canvas.height / ZOOM;
       let cx = this.player.x, cy = this.player.y - 8;
+      // lead the camera toward the crosshair so you see where you're aiming
+      if (this.state === 'raid') {
+        const lead = KTC.Tune.feel.camLead;
+        cx += U.clamp(In.mouse.wx - this.player.x, -vw * 0.28, vw * 0.28) * lead;
+        cy += U.clamp(In.mouse.wy - this.player.y, -vh * 0.28, vh * 0.28) * lead;
+      }
       cx = this.level.w > vw ? U.clamp(cx, vw / 2, this.level.w - vw / 2) : this.level.w / 2;
       cy = this.level.h > vh ? U.clamp(cy, vh / 2, this.level.h - vh / 2) : this.level.h / 2;
       const k = 1 - Math.pow(0.0001, dt);
@@ -535,6 +614,7 @@ window.KTC = window.KTC || {};
       ctx.translate(-camLeft + sx, -camTop + sy);
 
       this.level.renderBackground(ctx);
+      if (this.decals.length) this.renderDecals(ctx);
 
       // gather y-sorted drawables
       const draw = [];
@@ -696,6 +776,21 @@ window.KTC = window.KTC || {};
       if (this.damageFlash > 0) {
         ctx.fillStyle = `rgba(150,30,25,${this.damageFlash * 0.5})`;
         ctx.fillRect(0, 0, w, h);
+      }
+
+      // directional damage indicator — an arc at the screen edge toward the hit
+      if (this.damageDirT > 0) {
+        ctx.save();
+        ctx.translate(w / 2, h / 2);
+        ctx.rotate(this.damageDir);
+        ctx.globalAlpha = U.clamp(this.damageDirT, 0, 1) * 0.8;
+        ctx.strokeStyle = '#e0483a';
+        ctx.lineWidth = 10;
+        ctx.beginPath();
+        ctx.arc(0, 0, Math.min(w, h) * 0.42, -0.5, 0.5);
+        ctx.stroke();
+        ctx.restore();
+        ctx.globalAlpha = 1;
       }
 
       // showdown: warm gold wash + pulsing edges + banner

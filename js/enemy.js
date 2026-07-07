@@ -133,7 +133,7 @@ window.KTC = window.KTC || {};
           this.x += Math.cos(this.aim) * 6;
           this.y += Math.sin(this.aim) * 6;
           if (!p.dead && !p.invuln() && U.dist(this.x, this.y, p.x, p.y) < this.s.reach + p.r + 5) {
-            p.hurt(this.s.dmg, game);
+            p.hurt(this.s.dmg, game, this.x, this.y);
           }
           game.particles.dust(this.x + Math.cos(this.aim) * 12, this.y + Math.sin(this.aim) * 12, 3);
           this.state = 'chase'; this.cdT = this.s.cd; this.swing = 0;
@@ -333,8 +333,9 @@ window.KTC = window.KTC || {};
     reset() { this.timer = 0.8; this.frenzy = false; }
 
     maxAlive(game) {
-      const base = 6 + Math.floor(game.threat * 1.1) + game.raidsCleared;
-      return Math.min(base, 34) + (this.frenzy ? 8 : 0);
+      const T = KTC.Tune.spawn;
+      const base = (T.capBase + Math.floor(game.threat * T.capPerThreat) + game.raidsCleared) * (game.diff ? game.diff.spawnMul : 1);
+      return Math.min(Math.round(base), T.capMax) + (this.frenzy ? 8 : 0);
     }
 
     spawnPoint(game) {
