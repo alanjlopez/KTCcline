@@ -8,11 +8,13 @@ that gets you killed — blended with two other genres:
   projectiles to weave through, an arsenal of guns with distinct *behaviors*
   (with one-shot kills, guns differ by handling and trick rounds, not damage),
   and a **roguelike trinket** layer whose effects stack into wild synergies.
-- **An extraction shooter** — you don't play for score, you play for *loot*.
-  Rummage containers to fill a limited **satchel** with valuables, crack glowing
-  caches for trinkets, then reach the stagecoach and hold it to **extract**. Get
-  gunned down first and the dirt keeps everything you were carrying. Bank what you
-  escape with, spend it in camp.
+- **An extraction shooter with a home base** — you don't play for score, you play
+  for *loot and materials*. Deploy from your walkable **base** into a large,
+  procedurally-generated frontier split into biome **zones** (deeper = deadlier &
+  richer). Rummage containers, gather materials, crack glowing caches for trinkets,
+  then reach **any** stagecoach and hold it to **extract**. Get gunned down first and
+  the dirt keeps everything you were carrying. Back home, craft at the workbench
+  and buy at the gunsmith to come back harder.
 
 It's built with plain HTML5 canvas and vanilla JavaScript — **no build step, no
 libraries, and no image/audio assets**. Every sprite is drawn from code and every
@@ -102,21 +104,38 @@ and your chosen iron are *insured* — kept even if you die. Trinkets and guns y
 **find in a raid** are lost if you're killed, and only yours once you extract.
 Buy trinkets and belt slots in the General Store, or gamble on finding them.
 
+## Your base & the frontier
+
+You start at a **walkable home base** — a fenced camp with three benches you
+approach and use with **E**:
+
+- **Map Table** — pick your insured loadout (iron + trinkets) and **deploy**.
+- **Workbench** — spend **materials** to upgrade the bench itself and, through it,
+  your permanent gear (max health, cylinder capacity, reloads, dodge, speed,
+  satchel size, trinket belt slots). A higher-level workbench unlocks higher tiers.
+- **Gunsmith** — spend **gold** on new irons and trinkets.
+
+Deploying drops you into a **large procedural world** of six biome zones — Ghost
+Town, Dust Flats, Deadwood, the Badlands — arranged so difficulty, loot, materials,
+and threat all grow the farther you push from the entry corner. A **minimap** shows
+the zones (by difficulty), every extraction point, and the crows around you.
+
+**Materials** (scrap / iron / relic) drop from containers and deeper crows and feed
+the workbench. **Threat** climbs the longer you stay and the deeper you go: crows
+spawn faster and nastier, so every extra crate is a gamble. Reach **any** of the
+six stagecoaches and hold it to escape with your whole haul.
+
 ## The loop
 
 ```
-CAMP ──► RAID ──► reach the stagecoach & hold ──► EXTRACTED (haul banked)
-  ▲         │
-  │         └──► gunned down ──────────────────► DEAD (haul lost)
-  │                                                  │
-  └──── spend banked gold in the General Store ◄─────┘
+BASE ──deploy──► FRONTIER ──► reach any stagecoach & hold ──► EXTRACTED (haul banked)
+  ▲                 │
+  │                 └──► gunned down ─────────────────────► DEAD (haul lost)
+  │                                                             │
+  └── craft with materials · buy with gold, then deploy again ◄─┘
 ```
 
-In the **General Store** you can buy new irons (from the Sawn-off up to the
-behavior guns), **trinkets**, and permanent upgrades (max health, cylinder
-capacity, faster reloads, shorter dodge cooldown, movement speed, satchel size,
-trinket belt slots). The town, its loot, the caches, and the extraction point are
-re-seeded every raid, and enemy pressure ramps the longer you linger.
+Everything (world, loot, caches, extraction points) is re-seeded every run.
 
 ## Project layout
 
@@ -130,15 +149,16 @@ js/
   audio.js            WebAudio-synthesized sound effects
   weapons.js          data-driven gun table (handling + projectile behaviors)
   trinkets.js         roguelike passives: mods + event hooks + synergies
+  zones.js            biome definitions + procedural world layout + materials
   particles.js        particles, screen shake, floating text, lightning bolts
   projectile.js       tracer bullets + behaviors (pierce/bounce/explode/home/chain)
-  loot.js             pickups, containers, caches, hold-E channels, valuables
-  enemy.js            crow AI (telegraphed attacks) + the wave director
+  loot.js             pickups, containers, caches, materials, hold-E channels
+  enemy.js            crow AI (telegraphed attacks) + threat-driven wave director
   player.js           movement, dodge, shooting, reload, loot channel, mods
-  level.js            hybrid town generation + collision
-  save.js             persistent stash / trinkets / upgrades (localStorage)
-  ui.js               DOM HUD, showdown meter, satchel, camp, shop, results
-  game.js             state machine, camera, rendering, mods/events/showdown
+  level.js            procedural multi-zone world + walkable base hub + collision
+  save.js             persistent stash / trinkets / materials / benches
+  ui.js               DOM HUD, base + bench menus, minimap wiring, results
+  game.js             states (base/run), camera, rendering, threat, extraction
   main.js             bootstrap
 ```
 

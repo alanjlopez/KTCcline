@@ -42,17 +42,21 @@ window.KTC = window.KTC || {};
 
       this.camera = { x: this.level.w / 2, y: this.level.h / 2 };
       this.run = null;
-      this.extract = null;
+      this.extract = null;              // extraction point currently being held
+      this.extractionPoints = [];       // all extraction points in the world
+      this.threat = 0;                  // rises with time + depth; drives spawns
+      this._threatTier = 0;
+      this.baseMenu = null;             // which bench menu is open in the base
+      this.nearBench = null;
       this.damageFlash = 0;
       this.menuPan = 0;
-      this.lastMoveMsg = 0;
 
       this.ui = new KTC.UI(this);
       this.resize();
       window.addEventListener('resize', () => this.resize());
       window.addEventListener('blur', () => { if (this.state === 'raid') this.setState('paused'); });
 
-      this.level.generate();  // backdrop for the menu
+      this.level.generateWorld();  // backdrop for the menu
       this._last = performance.now();
       this.setState('menu');
       requestAnimationFrame((t) => this.frame(t));
@@ -71,11 +75,47 @@ window.KTC = window.KTC || {};
       In.clear();
     }
 
-    // ---------------- raid lifecycle ----------------
-    startRaid() {
+    // ---------------- base hub ----------------
+    enterBase() {
       KTC.Audio.unlock();
-      this.level.generate();
-      // trinkets you brought from camp (your insured loadout)
+      this.level.generateBase();
+      this.trinkets = [];
+      this.recomputeMods();
+      this.player = new KTC.Player(this.level.spawn.x, this.level.spawn.y);
+      this.player.applyStats(KTC.Save.deriveStats(this.save));
+      this.enemies.length = 0;
+      this.projectiles.length = 0;
+      this.pickups.length = 0;
+      this.particles.clear();
+      this.run = null;
+      this.extract = null;
+      this.extractionPoints = [];
+      this.threat = 0;
+      this.baseMenu = null;
+      this.nearBench = null;
+      this.showdown = { meter: 0, active: false, t: 0 };
+      this.enemyScale = 1;
+      this.camera.x = this.player.x;
+      this.camera.y = this.player.y;
+      this.setState('base');
+    }
+
+    openBench(type) {
+      this.baseMenu = type;
+      KTC.Audio.click();
+      this.ui.showBench(type);
+    }
+
+    closeBench() {
+      this.baseMenu = null;
+      this.ui.onState('base');
+    }
+
+    // ---------------- run lifecycle ----------------
+    startRun() {
+      KTC.Audio.unlock();
+      this.level.generateWorld();
+      // trinkets you brought from the base (your insured loadout)
       this.trinkets = (this.save.loadout || []).filter((id) => KTC.Trinkets.get(id) && this.save.trinkets[id]);
       this.recomputeMods();
 
@@ -95,39 +135,32 @@ window.KTC = window.KTC || {};
         gold: 0,
         satchel: [],                    // [{name, value}] — limited slots
         cap: stats.satchelCap,
+        materials: { scrap: 0, iron: 0, relic: 0 },
         kills: 0, time: 0, combo: 0, comboT: 0, comboMax: 0,
-        foundTrinkets: [],              // trinkets/guns picked up THIS raid
+        foundTrinkets: [],              // trinkets/guns picked up THIS run
         foundWeapons: [],
         killsSinceHeal: 0,
       };
+      this.extractionPoints = this.level.extractionPoints;
+      for (const ex of this.extractionPoints) { ex.progress = 0; ex.holding = false; ex.glow = U.rand(0, 6); }
+      this.extract = null;
+      this.threat = 0; this._threatTier = 0;
       this.showdown = { meter: 0, active: false, t: 0 };
       this.enemyScale = 1;
       this.damageFlash = 0;
       this._fullToastT = 0;
+      this.baseMenu = null;
       this.emit('raidstart');
-
-      // place the extraction stagecoach at the candidate farthest from spawn
-      let best = this.level.extractCandidates[0], bd = -1;
-      for (const c of this.level.extractCandidates) {
-        const d = U.dist(c.x, c.y, this.player.x, this.player.y);
-        if (d > bd) { bd = d; best = c; }
-      }
-      this.extract = { x: best.x, y: best.y, progress: 0, holding: false, done: false, moveT: 26, glow: 0 };
       this.setState('raid');
     }
 
-    relocateExtract() {
-      const cands = this.level.extractCandidates.filter(
-        (c) => U.dist(c.x, c.y, this.extract.x, this.extract.y) > 200 &&
-               U.dist(c.x, c.y, this.player.x, this.player.y) > 300);
-      if (!cands.length) return;
-      const c = U.pick(cands);
-      this.particles.burst(this.extract.x, this.extract.y - 10, 18, {
-        color: ['#6b6153', '#8a7f6b'], speedMin: 20, speedMax: 90, lifeMin: 0.3, lifeMax: 0.7, size: 3,
-      });
-      this.extract.x = c.x; this.extract.y = c.y;
-      this.extract.moveT = 26;
-      this.ui.toast('The stagecoach moved on!');
+    // materials feed the crafting benches; banked on extract, lost on death
+    addMaterial(type, amount, x, y) {
+      if (!this.run.materials) return;
+      this.run.materials[type] = (this.run.materials[type] || 0) + amount;
+      const m = KTC.Zones.MATERIALS[type] || { icon: '?', color: '#fff' };
+      this.particles.text(x, y - 10, m.icon + '+' + amount, m.color, { life: 0.7, size: 6 });
+      KTC.Audio.pickup();
     }
 
     // ---------------- roguelike engine ----------------
@@ -322,8 +355,9 @@ window.KTC = window.KTC || {};
       this._deathT = 1.4;   // brief slow-mo before the screen
     }
 
-    extractSuccess() {
-      this.extract.done = true;
+    extractSuccess(ex) {
+      if (ex) ex.done = true;
+      this._extractDone = true;
       const s = this.save;
       const haul = this.runValue();
       s.gold += haul;
@@ -331,7 +365,8 @@ window.KTC = window.KTC || {};
       s.stats.raids++;
       s.stats.kills += this.run.kills;
       s.stats.bestLoot = Math.max(s.stats.bestLoot, haul);
-      // trinkets & guns found this raid are kept only because you got out
+      // materials, trinkets & guns found this run are kept only because you got out
+      for (const k in this.run.materials) s.materials[k] = (s.materials[k] || 0) + this.run.materials[k];
       for (const id of this.run.foundTrinkets) s.trinkets[id] = true;
       for (const id of this.run.foundWeapons) s.weapons[id] = true;
       KTC.Save.save(s);
@@ -353,13 +388,14 @@ window.KTC = window.KTC || {};
 
     update(dt) {
       this.menuPan += dt;
-      if (this.state === 'menu' || this.state === 'camp' || this.state === 'extracted' || this.state === 'dead') {
+      if (this.state === 'menu' || this.state === 'extracted' || this.state === 'dead') {
         // gentle drifting backdrop
         this.camera.x = this.level.w / 2 + Math.cos(this.menuPan * 0.15) * this.level.w * 0.18;
         this.camera.y = this.level.h / 2 + Math.sin(this.menuPan * 0.12) * this.level.h * 0.16;
         this.particles.update(dt);
         return;
       }
+      if (this.state === 'base') { this.updateBase(dt); return; }
       if (this.state === 'paused') return;
       if (this.state !== 'raid') return;
 
@@ -386,6 +422,14 @@ window.KTC = window.KTC || {};
       this.run.time += dt;
       if (this.run.comboT > 0) { this.run.comboT -= dt; if (this.run.comboT <= 0) this.run.combo = 0; }
       if (this.damageFlash > 0) this.damageFlash = U.approach(this.damageFlash, 0, dt * 1.6);
+
+      // threat climbs with time, faster in deeper/deadlier zones — the longer
+      // you linger and the farther you push, the more crows pour in
+      const zone = this.level.zoneAt(p.x, p.y);
+      const zt = zone ? KTC.Zones.biome(zone.biome).threat : 0.3;
+      this.threat += dt * (0.05 + zt * 0.05);
+      const tier = Math.floor(this.threat / 5);
+      if (tier > this._threatTier) { this._threatTier = tier; this.ui.toast('The crows are closing in…'); this.particles.shake(3, 0.3); }
 
       // showdown: trigger with Q or right-click, then slow the crows
       if (In.justPressed('KeyQ') || In.mouse.rclicked) this.tryShowdown();
@@ -416,27 +460,53 @@ window.KTC = window.KTC || {};
       this.ui.updateHUD();
     }
 
+    // Any of the world's extraction points can be held; whichever you're
+    // standing on charges, the rest bleed back down.
     updateExtract(dt) {
-      const ex = this.extract;
-      if (ex.done) return;
-      ex.glow += dt;
       const p = this.player;
-      const d = U.dist(p.x, p.y, ex.x, ex.y);
-      const inRange = d < EXTRACT_RADIUS && !p.dead;
-      if (inRange) {
-        const before = ex.progress;
-        ex.holding = true;
-        ex.progress += dt;
-        if (Math.floor(ex.progress) !== Math.floor(before)) KTC.Audio.extractTick();
-        if (ex.progress >= HOLD_TIME) this.extractSuccess();
-      } else {
-        ex.holding = false;
-        ex.progress = Math.max(0, ex.progress - dt * 1.5);
-        if (ex.progress <= 0.01) {
-          ex.moveT -= dt;
-          if (ex.moveT <= 0) this.relocateExtract();
+      let active = null;
+      for (const ex of this.extractionPoints) {
+        ex.glow += dt;
+        const inRange = !p.dead && U.dist(p.x, p.y, ex.x, ex.y) < EXTRACT_RADIUS;
+        if (inRange && !active) {
+          active = ex;
+          const before = ex.progress;
+          ex.holding = true;
+          ex.progress += dt;
+          if (Math.floor(ex.progress) !== Math.floor(before)) KTC.Audio.extractTick();
+          if (ex.progress >= HOLD_TIME) { this.extractSuccess(ex); return; }
+        } else {
+          ex.holding = false;
+          ex.progress = Math.max(0, ex.progress - dt * 1.5);
         }
       }
+      this.extract = active;   // drives the spawn frenzy + HUD readout
+    }
+
+    // ---------------- base hub loop ----------------
+    updateBase(dt) {
+      this.updateCamera(dt);
+      const camLeft = this.camera.x - (this.canvas.width / ZOOM) / 2;
+      const camTop = this.camera.y - (this.canvas.height / ZOOM) / 2;
+      In.mouse.wx = camLeft + In.mouse.sx / ZOOM;
+      In.mouse.wy = camTop + In.mouse.sy / ZOOM;
+
+      // find the nearest bench in reach
+      this.nearBench = null;
+      let bd = 1e9;
+      for (const bn of this.level.benches) {
+        const d = U.dist(this.player.x, this.player.y, bn.x, bn.y);
+        if (d < bn.r && d < bd) { bd = d; this.nearBench = bn; }
+      }
+
+      if (this.baseMenu) {
+        if (In.justPressed('Escape')) this.closeBench();
+      } else {
+        this.player.update(dt, this);           // walk around (combat is disabled in base)
+        if (this.nearBench && In.justPressed('KeyE')) this.openBench(this.nearBench.type);
+      }
+      this.particles.update(dt);
+      this.ui.updateBaseHUD();
     }
 
     updateCamera(dt) {
@@ -469,16 +539,18 @@ window.KTC = window.KTC || {};
       // gather y-sorted drawables
       const draw = [];
       for (const pr of this.level.props) draw.push(pr);
+      for (const bn of this.level.benches) draw.push(bn);
       for (const c of this.level.containers) draw.push(c);
       for (const pk of this.pickups) draw.push(pk);
       for (const e of this.enemies) draw.push(e);
-      if (this.player && !this.player.dead && (this.state === 'raid' || this.state === 'paused')) draw.push(this.player);
-      if (this.extract) draw.push({ y: this.extract.y, render: (c) => this.renderExtract(c) });
+      const showP = this.player && !this.player.dead && (this.state === 'raid' || this.state === 'paused' || this.state === 'base');
+      if (showP) draw.push(this.player);
+      for (const ex of this.extractionPoints) draw.push({ y: ex.y, render: (c) => this.renderExtract(c, ex) });
       draw.sort((a, b) => a.y - b.y);
       for (const d of draw) d.render(ctx);
 
       // dead player corpse
-      if (this.player && this.player.dead && this.state !== 'menu' && this.state !== 'camp') {
+      if (this.player && this.player.dead && this.state !== 'menu' && this.state !== 'base') {
         ctx.save();
         ctx.translate(this.player.x, this.player.y);
         ctx.rotate(Math.PI / 2);
@@ -491,6 +563,7 @@ window.KTC = window.KTC || {};
       this.particles.render(ctx);
       this.particles.renderBolts(ctx);
       if (this.state === 'raid' || this.state === 'paused') this.renderLootPrompts(ctx);
+      if (this.state === 'base') this.renderBasePrompt(ctx);
       this.particles.renderText(ctx);
 
       // ---- screen-space overlays ----
@@ -498,13 +571,61 @@ window.KTC = window.KTC || {};
       this.renderPostFX(ctx);
       if (this.state === 'raid' || this.state === 'paused') {
         this.renderExtractArrow(ctx, camLeft, camTop);
+        this.renderMinimap(ctx);
         this.renderCrosshair(ctx);
       }
-      if (this.state === 'menu' || this.state === 'camp' || this.state === 'extracted' || this.state === 'dead') {
+      if (this.state === 'menu' || this.state === 'extracted' || this.state === 'dead') {
         // darken backdrop so DOM overlays read clearly
         ctx.fillStyle = 'rgba(20,18,14,0.55)';
         ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
       }
+    }
+
+    // "PRESS E" over the nearest base bench (world space)
+    renderBasePrompt(ctx) {
+      const bn = this.nearBench;
+      if (!bn || this.baseMenu) return;
+      ctx.font = '6px "Courier New", monospace';
+      ctx.textAlign = 'center';
+      const ty = bn.y - 26 + Math.sin(performance.now() / 300) * 1.2;
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.fillText('E  ' + bn.label, bn.x + 0.6, ty + 0.6);
+      ctx.fillStyle = '#e3c06a';
+      ctx.fillText('E  ' + bn.label, bn.x, ty);
+      ctx.textAlign = 'left';
+    }
+
+    // corner minimap: zones by biome, extraction markers, player, threat tint
+    renderMinimap(ctx) {
+      const L = this.level.zones;
+      if (!L) return;
+      const size = 150, pad = 14;
+      const mx = this.canvas.width - size - pad, my = pad + 40;
+      const sc = size / Math.max(L.w, L.h);
+      const ox = mx + (size - L.w * sc) / 2, oy = my + (size - L.h * sc) / 2;
+      ctx.save();
+      ctx.fillStyle = 'rgba(14,12,9,0.8)';
+      ctx.fillRect(mx - 4, my - 4, size + 8, size + 8);
+      ctx.strokeStyle = '#4a4030'; ctx.lineWidth = 2; ctx.strokeRect(mx - 4, my - 4, size + 8, size + 8);
+      for (const cell of L.cells) {
+        ctx.fillStyle = KTC.Zones.biome(cell.biome).minimap;
+        ctx.fillRect(ox + cell.x * sc, oy + cell.y * sc, cell.w * sc - 1, cell.h * sc - 1);
+      }
+      // extraction points
+      for (const ex of this.extractionPoints) {
+        ctx.fillStyle = ex.holding ? '#fff2c0' : '#e3c06a';
+        const ex2 = ox + ex.x * sc, ey2 = oy + ex.y * sc;
+        ctx.beginPath(); ctx.moveTo(ex2, ey2 - 3); ctx.lineTo(ex2 + 3, ey2 + 2); ctx.lineTo(ex2 - 3, ey2 + 2); ctx.closePath(); ctx.fill();
+      }
+      // enemies as faint dots
+      ctx.fillStyle = 'rgba(181,67,58,0.8)';
+      for (const e of this.enemies) ctx.fillRect(ox + e.x * sc - 1, oy + e.y * sc - 1, 2, 2);
+      // player
+      if (this.player) {
+        ctx.fillStyle = '#efe6d2';
+        ctx.beginPath(); ctx.arc(ox + this.player.x * sc, oy + this.player.y * sc, 2.5, 0, U.TAU); ctx.fill();
+      }
+      ctx.restore();
     }
 
     // "HOLD E" prompt on the nearest closed container + progress rings on any
@@ -538,8 +659,7 @@ window.KTC = window.KTC || {};
       }
     }
 
-    renderExtract(ctx) {
-      const ex = this.extract;
+    renderExtract(ctx, ex) {
       ctx.save();
       ctx.translate(ex.x, ex.y);
       S.stagecoach(ctx, ex.done ? 0 : ex.glow);
@@ -599,8 +719,11 @@ window.KTC = window.KTC || {};
     }
 
     renderExtractArrow(ctx, camLeft, camTop) {
-      if (!this.extract || this.extract.done || !this.player) return;
-      const ex = this.extract;
+      if (!this.player || this.player.dead || !this.extractionPoints.length) return;
+      // point at the nearest extraction (or the one being held)
+      let ex = this.extract, bd = 1e12;
+      if (!ex) for (const e of this.extractionPoints) { const d = U.dist2(this.player.x, this.player.y, e.x, e.y); if (d < bd) { bd = d; ex = e; } }
+      if (!ex) return;
       const esx = (ex.x - camLeft) * ZOOM, esy = (ex.y - camTop) * ZOOM;
       const w = this.canvas.width, h = this.canvas.height;
       const margin = 60;

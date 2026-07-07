@@ -28,7 +28,7 @@ window.KTC = window.KTC || {};
       this.life = 26;               // despawn safety
       this.dead = false;
       this.fullT = 0;               // valuable: retry delay when satchel is full
-      this.magnet = kind === 'gold' ? 70 : 40;
+      this.magnet = (kind === 'gold' || kind === 'material') ? 70 : 40;
     }
 
     update(dt, game) {
@@ -83,6 +83,7 @@ window.KTC = window.KTC || {};
       }
       if (this.kind === 'trinket') { this.dead = true; game.addTrinket(this.name, this.x, this.y); return; }
       if (this.kind === 'weapon') { this.dead = true; game.equipFoundWeapon(this.name, this.x, this.y); return; }
+      if (this.kind === 'material') { this.dead = true; game.addMaterial(this.name, this.value, this.x, this.y); return; }
       this.dead = true;
       game.addGold(this.value, this.x, this.y);
       KTC.Audio.coin();
@@ -120,6 +121,11 @@ window.KTC = window.KTC || {};
         }
         ctx.closePath(); ctx.fill();
         S.px(ctx, this.x - 1, y - 1 + fb, 2, 2, '#fff');
+      } else if (this.kind === 'material') {
+        const mc = (KTC.Zones.MATERIALS[this.name] || {}).color || '#9a8f7e';
+        S.px(ctx, this.x - 3, y - 3 + fb, 6, 5, mc);
+        S.px(ctx, this.x - 3, y - 3 + fb, 6, 1, '#ffffff33');
+        S.px(ctx, this.x - 3, y + 1 + fb, 6, 1, '#00000044');
       } else if (this.kind === 'weapon') {
         S.px(ctx, this.x - 5, y - 2 + fb, 10, 3, S.PAL.metal);
         S.px(ctx, this.x - 5, y - 2 + fb, 4, 3, S.PAL.woodDark);
@@ -179,12 +185,18 @@ window.KTC = window.KTC || {};
 
     lootTable() {
       const out = [];
+      const rich = this.richness || 1;
+      const biome = this.biome || 'ghost';
       const goldChunks = { crate: 2, barrel: 1, well: 3, wagon: 3 }[this.type] || 2;
-      for (let i = 0; i < goldChunks; i++) out.push({ kind: 'gold', value: U.randInt(6, 16) });
-      const valChance = { crate: 0.22, barrel: 0.12, well: 0.65, wagon: 0.55 }[this.type] || 0.2;
-      if (U.chance(valChance)) {
-        out.push({ kind: 'valuable', value: U.randInt(35, 85), name: U.pick(VALUABLE_NAMES) });
+      for (let i = 0; i < goldChunks; i++) out.push({ kind: 'gold', value: Math.round(U.randInt(6, 16) * rich) });
+      // materials — the crafting economy. Richer zones give more, and better.
+      const matN = U.randInt(1, 1 + Math.round(rich));
+      for (let i = 0; i < matN; i++) {
+        const mt = KTC.Zones.rollMat(biome);
+        out.push({ kind: 'material', value: mt === 'scrap' ? U.randInt(1, 3) : 1, name: mt });
       }
+      const valChance = ({ crate: 0.2, barrel: 0.1, well: 0.6, wagon: 0.5 }[this.type] || 0.18) * (0.7 + rich * 0.3);
+      if (U.chance(valChance)) out.push({ kind: 'valuable', value: Math.round(U.randInt(35, 85) * rich), name: U.pick(VALUABLE_NAMES) });
       if (U.chance(0.22)) out.push({ kind: 'health', value: 1 });
       return out;
     }
@@ -226,6 +238,12 @@ window.KTC = window.KTC || {};
       game.pickups.push(new Pickup(x, y - 8, 'valuable', U.randInt(30, 70), U.pick(VALUABLE_NAMES)));
     }
     if (U.chance(0.08)) game.pickups.push(new Pickup(x, y - 8, 'health', 1));
+    // deeper zones shed materials off their crows
+    const z = game.level.zoneAt ? game.level.zoneAt(x, y) : null;
+    if (z && U.chance(0.12 + z.tier * 0.06)) {
+      const mt = KTC.Zones.rollMat(z.biome);
+      game.pickups.push(new Pickup(x, y - 8, 'material', mt === 'scrap' ? U.randInt(1, 2) : 1, mt));
+    }
   }
 
   KTC.Loot = { Pickup, Container, dropFromEnemy, VALUABLE_NAMES };

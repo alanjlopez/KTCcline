@@ -110,7 +110,24 @@ html, body {
 }
 .hud-loot { font-size: 16px; color: var(--gold); margin-top: 2px; text-shadow: 0 1px 0 #000; }
 .hud-loot .val { color: var(--teal); font-size: 13px; }
+.hud-mats { font-size: 13px; margin-top: 3px; text-shadow: 0 1px 0 #000; }
+.hud-mats .mat, .base-mats .mat, .gold-line .mat { margin-left: 6px; }
 .coin { color: var(--gold); }
+
+/* threat readout (top-centre, under the kill counter) */
+.threat-wrap { margin: 6px auto 0; width: 150px; }
+.threat-label { font-size: 10px; letter-spacing: 2px; color: var(--ink-dim); text-shadow: 0 1px 0 #000; }
+.threat-bar { height: 6px; background: rgba(18,16,12,0.85); border: 1px solid var(--edge2); border-radius: 4px; overflow: hidden; margin-top: 2px; }
+.threat-fill { height: 100%; width: 0%; background: #5a8f3a; transition: width .2s linear; }
+
+/* base hud */
+.base-hud { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); text-align: center; }
+.base-title { font-size: 20px; letter-spacing: 4px; color: var(--gold); text-shadow: 0 2px 0 #000; }
+.base-mats { font-size: 16px; margin-top: 4px; text-shadow: 0 1px 0 #000; }
+.base-hint { font-size: 12px; color: var(--ink-dim); margin-top: 4px; letter-spacing: 1px; }
+.bench-head { border-color: var(--gold-dim); }
+.shop-name .mech { color: var(--teal); font-size: 12px; }
+.tag { display: inline-block; }
 
 .hud-hearts {
   position: absolute; left: 16px; top: 62px;

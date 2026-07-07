@@ -1,12 +1,13 @@
-// ui.js — DOM HUD + menu / camp / shop / result screens, plus toasts. Canvas
-// draws the world; everything text-heavy lives in HTML overlays so it stays
-// crisp at any resolution. The shop and camp screens are rendered from the
-// current save each time they open.
+// ui.js — DOM HUD + overlay screens. The base is walkable (rendered on canvas),
+// but its benches open HTML menus (deploy / workbench / gunsmith). Run HUD shows
+// ammo, hearts, loot, materials, showdown, threat; the minimap is drawn on the
+// canvas by game.js. Screens are rebuilt from the current save each time.
 window.KTC = window.KTC || {};
 
 (function (KTC) {
   'use strict';
   const U = KTC.Util;
+  const MAT = () => KTC.Zones.MATERIALS;
 
   function el(tag, props, kids) {
     const e = document.createElement(tag);
@@ -21,6 +22,10 @@ window.KTC = window.KTC || {};
     return e;
   }
 
+  const WORKBENCH_MAX = 4;
+  function matCost(level) { return { scrap: 5 + level * 4, iron: level >= 2 ? level : 0, relic: level >= 4 ? 1 : 0 }; }
+  function benchCost(wl) { return { scrap: 12 * wl, iron: 4 * wl, relic: wl >= 3 ? 2 : 1 }; }
+
   class UI {
     constructor(game) {
       this.game = game;
@@ -32,9 +37,23 @@ window.KTC = window.KTC || {};
       this.buildStaticHud();
     }
 
+    // ---------------- material helpers ----------------
+    matHtml(mats, onlyNonZero) {
+      const M = MAT();
+      return KTC.Zones.matOrder
+        .filter((k) => !onlyNonZero || mats[k] > 0)
+        .map((k) => `<span class="mat" style="color:${M[k].color}">${M[k].icon} ${mats[k] || 0}</span>`)
+        .join(' ');
+    }
+    costHtml(cost) {
+      const M = MAT();
+      return KTC.Zones.matOrder.filter((k) => cost[k]).map((k) => `<span style="color:${M[k].color}">${M[k].icon}${cost[k]}</span>`).join(' ');
+    }
+    canAfford(cost) { const m = this.game.save.materials; return KTC.Zones.matOrder.every((k) => !cost[k] || (m[k] || 0) >= cost[k]); }
+    spend(cost) { const m = this.game.save.materials; for (const k in cost) m[k] = (m[k] || 0) - cost[k]; }
+
     buildStaticHud() {
       this.hud.innerHTML = '';
-      // weapon panel (top-left) — mirrors the reference HUD
       this.gunBadge = el('canvas', { class: 'gun-badge', width: 40, height: 26 });
       this.ammoRow = el('div', { class: 'ammo-row' });
       this.reloadBar = el('div', { class: 'reload-bar' }, [el('div', { class: 'reload-fill' })]);
@@ -47,37 +66,44 @@ window.KTC = window.KTC || {};
 
       this.killsEl = el('div', { class: 'hud-kills', text: '0' });
       this.comboEl = el('div', { class: 'hud-combo hidden' });
+      this.threatFill = el('div', { class: 'threat-fill' });
+      this.threatWrap = el('div', { class: 'threat-wrap' }, [
+        el('div', { class: 'threat-label', text: 'THREAT' }),
+        el('div', { class: 'threat-bar' }, [this.threatFill]),
+      ]);
       this.timerEl = el('div', { class: 'hud-timer', text: '00:00' });
       this.lootEl = el('div', { class: 'hud-loot', html: '<span class="coin">◉</span> 0' });
+      this.matsEl = el('div', { class: 'hud-mats' });
       this.heartsEl = el('div', { class: 'hud-hearts' });
       this.extractEl = el('div', { class: 'hud-extract hidden' });
-
-      // active trinkets (icons) below the weapon panel
       this.trinketRow = el('div', { class: 'trinket-row' });
       this._trinketStamp = '';
-
-      // showdown meter (bottom-centre)
       this.sdFill = el('div', { class: 'sd-fill' });
       this.sdLabel = el('div', { class: 'sd-label' });
-      this.showdownEl = el('div', { class: 'showdown-meter hidden' }, [
-        el('div', { class: 'sd-bar' }, [this.sdFill]), this.sdLabel,
-      ]);
+      this.showdownEl = el('div', { class: 'showdown-meter hidden' }, [el('div', { class: 'sd-bar' }, [this.sdFill]), this.sdLabel]);
 
-      this.hud.appendChild(wpanel);
-      this.hud.appendChild(this.trinketRow);
-      this.hud.appendChild(el('div', { class: 'hud-top-center' }, [this.killsEl, this.comboEl]));
-      this.hud.appendChild(el('div', { class: 'hud-top-right' }, [this.timerEl, this.lootEl]));
-      this.hud.appendChild(this.heartsEl);
-      this.hud.appendChild(this.showdownEl);
-      this.hud.appendChild(this.extractEl);
+      this.satchelPanel = el('div', { class: 'satchel-panel hidden' });
+      this._satchelStamp = '';
+      // all run-only HUD in one wrapper so the base HUD/toast can stay visible
+      this.runHud = el('div', { class: 'run-hud hidden' }, [
+        wpanel, this.trinketRow,
+        el('div', { class: 'hud-top-center' }, [this.killsEl, this.comboEl, this.threatWrap]),
+        el('div', { class: 'hud-top-right' }, [this.timerEl, this.lootEl, this.matsEl]),
+        this.heartsEl, this.showdownEl, this.extractEl, this.satchelPanel,
+      ]);
+      this.hud.appendChild(this.runHud);
 
       this.toastEl = el('div', { class: 'toast hidden' });
       this.hud.appendChild(this.toastEl);
 
-      // satchel contents panel, shown while Tab is held
-      this.satchelPanel = el('div', { class: 'satchel-panel hidden' });
-      this.hud.appendChild(this.satchelPanel);
-      this._satchelStamp = '';
+      // base HUD (shown while walking the home base)
+      this.baseMats = el('div', { class: 'base-mats' });
+      this.baseHud = el('div', { class: 'base-hud hidden' }, [
+        el('div', { class: 'base-title', text: 'HOME BASE' }),
+        this.baseMats,
+        el('div', { class: 'base-hint', text: 'WASD to walk · approach a bench and press E' }),
+      ]);
+      this.hud.appendChild(this.baseHud);
 
       this.drawGunBadge();
     }
@@ -85,234 +111,191 @@ window.KTC = window.KTC || {};
     drawGunBadge() {
       const c = this.gunBadge.getContext('2d');
       c.clearRect(0, 0, 40, 26);
-      c.save();
-      c.translate(6, 15);
-      c.scale(1.2, 1.2);
-      // minimal revolver silhouette
+      c.save(); c.translate(6, 15); c.scale(1.2, 1.2);
       c.fillStyle = '#d8c7a6';
-      c.fillRect(0, -2, 14, 4);         // barrel
-      c.fillRect(9, -4, 5, 4);          // hammer housing
-      c.fillRect(2, 1, 4, 6);           // grip
-      c.beginPath(); c.arc(8, 0, 3, 0, U.TAU); c.fill();  // cylinder
-      c.fillStyle = '#20201c';
-      c.beginPath(); c.arc(8, 0, 1.2, 0, U.TAU); c.fill();
+      c.fillRect(0, -2, 14, 4); c.fillRect(9, -4, 5, 4); c.fillRect(2, 1, 4, 6);
+      c.beginPath(); c.arc(8, 0, 3, 0, U.TAU); c.fill();
+      c.fillStyle = '#20201c'; c.beginPath(); c.arc(8, 0, 1.2, 0, U.TAU); c.fill();
       c.restore();
     }
 
     onState(s) {
-      // hide all overlay screens, then show the relevant one
       this.root.querySelectorAll('.screen').forEach((n) => n.remove());
-      this.hud.classList.toggle('hidden', !(s === 'raid' || s === 'paused'));
+      this.runHud.classList.toggle('hidden', !(s === 'raid' || s === 'paused'));
+      this.baseHud.classList.toggle('hidden', s !== 'base');
       if (s === 'menu') this.renderMenu();
-      else if (s === 'camp') this.renderCamp();
-      else if (s === 'shop') this.renderShop();
       else if (s === 'dead') this.renderResult(false);
       else if (s === 'extracted') this.renderResult(true);
       else if (s === 'paused') this.renderPause();
     }
 
-    screen(cls, kids) {
-      const s = el('div', { class: 'screen ' + cls }, kids);
-      this.root.appendChild(s);
-      return s;
-    }
+    screen(cls, kids) { const s = el('div', { class: 'screen ' + cls }, kids); this.root.appendChild(s); return s; }
+    goldLine() { return el('div', { class: 'gold-line', html: `<span class="coin">◉</span> ${this.game.save.gold} banked &nbsp; ${this.matHtml(this.game.save.materials)}` }); }
 
-    goldLine() {
-      return el('div', { class: 'gold-line', html: `<span class="coin">◉</span> ${this.game.save.gold} banked` });
-    }
-
-    // ---------------- main menu ----------------
+    // ---------------- title ----------------
     renderMenu() {
-      const g = this.game;
-      const st = g.save.stats;
+      const g = this.game, st = g.save.stats;
       this.screen('menu', [
         el('div', { class: 'title-wrap' }, [
           el('h1', { class: 'game-title', text: 'KILL THE CROWS' }),
-          el('div', { class: 'subtitle', text: 'a dust-and-lead extraction run' }),
+          el('div', { class: 'subtitle', text: 'a frontier extraction roguelike' }),
         ]),
         el('div', { class: 'menu-buttons' }, [
-          this.bigBtn('ENTER TOWN', () => { KTC.Audio.click(); g.setState('camp'); }),
+          this.bigBtn('PLAY', () => { KTC.Audio.click(); g.enterBase(); }),
           this.btn(g.save.muted ? 'SOUND: OFF' : 'SOUND: ON', (b) => {
             g.save.muted = !g.save.muted; KTC.Audio.setMuted(g.save.muted);
             KTC.Save.save(g.save); b.textContent = g.save.muted ? 'SOUND: OFF' : 'SOUND: ON';
           }),
         ]),
-        el('div', { class: 'stat-row', html:
-          `Extractions <b>${st.extractions}</b> · Deaths <b>${st.deaths}</b> · Kills <b>${st.kills}</b> · Best haul <b>${st.bestLoot}</b>` }),
-        el('div', { class: 'controls-help', html:
-          '<b>WASD</b> move · <b>Mouse</b> aim · <b>Click</b> shoot · <b>R</b> reload · <b>Space</b> dodge · <b>E</b> loot · <b>Q / RMB</b> showdown · <b>Tab</b> satchel · <b>Esc</b> pause' }),
-        el('div', { class: 'blurb', text:
-          'One bullet, one dead Crow — theirs take longer, so read the tells: a raised knife, a glowing aim line, a sniper\'s laser that locks before the shot. Crack glowing caches for trinkets that stack into wild builds, find stranger guns on the racks, and fill your Showdown meter to slow time and clean house. Rummage for loot, then hold the stagecoach to escape — die and the dirt keeps it all.' }),
+        el('div', { class: 'stat-row', html: `Extractions <b>${st.extractions}</b> · Deaths <b>${st.deaths}</b> · Kills <b>${st.kills}</b> · Best haul <b>${st.bestLoot}</b>` }),
+        el('div', { class: 'controls-help', html: '<b>WASD</b> move · <b>Mouse</b> aim · <b>Click</b> shoot · <b>R</b> reload · <b>Space</b> dodge · <b>E</b> loot/use · <b>Q/RMB</b> showdown · <b>Tab</b> satchel' }),
+        el('div', { class: 'blurb', text: 'From your camp, deploy into a large frontier of biome zones — the deeper you push, the deadlier the crows and the richer the scrap. Loot, gun down crows, gather materials, and reach any stagecoach to extract. Die and you lose everything you carried. Back home, spend materials at the workbench and gold at the gunsmith to come back harder.' }),
       ]);
     }
 
-    // ---------------- camp (hub between raids) ----------------
-    renderCamp() {
+    // ---------------- bench menus ----------------
+    showBench(type) {
+      this.root.querySelectorAll('.screen').forEach((n) => n.remove());
+      if (type === 'deploy') this.renderDeploy();
+      else if (type === 'workbench') this.renderWorkbench();
+      else if (type === 'gunsmith') this.renderGunsmith();
+    }
+    reBench() { this.showBench(this.game.baseMenu); }
+    closeRow() { return el('div', { class: 'menu-buttons' }, [this.bigBtn('CLOSE', () => { KTC.Audio.click(); this.game.closeBench(); })]); }
+
+    renderDeploy() {
       const g = this.game;
       const owned = KTC.Weapons.order.filter((id) => g.save.weapons[id]);
       const loadout = el('div', { class: 'loadout' }, owned.map((id) => {
         const w = KTC.Weapons.get(id);
-        const sel = g.save.equipped === id;
-        return el('button', {
-          class: 'weap-chip' + (sel ? ' sel' : ''),
-          onclick: () => { KTC.Audio.click(); g.save.equipped = id; KTC.Save.save(g.save); this.renderCamp2(); },
-        }, [el('span', { text: w.name })]);
+        return el('button', { class: 'weap-chip' + (g.save.equipped === id ? ' sel' : ''),
+          onclick: () => { KTC.Audio.click(); g.save.equipped = id; KTC.Save.save(g.save); this.reBench(); } }, [el('span', { text: w.name })]);
       }));
-      // trinket loadout — equip owned trinkets up to the slot limit
       const slots = KTC.Save.deriveStats(g.save).trinketSlots;
       g.save.loadout = (g.save.loadout || []).filter((id) => g.save.trinkets[id]).slice(0, slots);
-      const ownedTrinkets = KTC.Trinkets.order.filter((id) => g.save.trinkets[id]);
-      const trinketChips = ownedTrinkets.length
-        ? ownedTrinkets.map((id) => {
-            const t = KTC.Trinkets.get(id);
-            const on = g.save.loadout.includes(id);
-            return el('button', {
-              class: 'trinket-item rar-' + t.rarity + (on ? ' sel' : ''),
-              title: t.name + ' — ' + t.desc,
-              onclick: () => {
-                KTC.Audio.click();
-                const L = g.save.loadout;
-                const i = L.indexOf(id);
-                if (i >= 0) L.splice(i, 1);
-                else if (L.length < slots) L.push(id);
-                else this.toast('Trinket belt full — upgrade it in the store.');
-                KTC.Save.save(g.save); this.renderCamp2();
-              },
-            }, [el('span', { class: 'ti', text: t.icon }), el('span', { class: 'tn', text: t.name })]);
-          })
-        : [el('div', { class: 'hint', text: 'None owned yet. Crack open glowing caches in a raid, then EXTRACT to keep what you find.' })];
+      const ownedT = KTC.Trinkets.order.filter((id) => g.save.trinkets[id]);
+      const chips = ownedT.length ? ownedT.map((id) => {
+        const t = KTC.Trinkets.get(id), on = g.save.loadout.includes(id);
+        return el('button', { class: 'trinket-item rar-' + t.rarity + (on ? ' sel' : ''), title: t.name + ' — ' + t.desc,
+          onclick: () => { KTC.Audio.click(); const L = g.save.loadout; const i = L.indexOf(id);
+            if (i >= 0) L.splice(i, 1); else if (L.length < slots) L.push(id); else this.toast('Trinket belt full — upgrade it at the workbench.');
+            KTC.Save.save(g.save); this.reBench(); } }, [el('span', { class: 'ti', text: t.icon }), el('span', { class: 'tn', text: t.name })]);
+      }) : [el('div', { class: 'hint', text: 'None owned. Crack glowing caches out in the field, then extract to keep them.' })];
 
-      this._campScreen = this.screen('camp', [
-        el('h2', { class: 'screen-title', text: 'CAMP' }),
-        this.goldLine(),
-        el('div', { class: 'section-label', text: 'LOADOUT — pick your iron' }),
-        loadout,
+      this.screen('camp', [
+        el('h2', { class: 'screen-title', text: 'DEPLOY' }),
+        el('div', { class: 'hint', text: 'A frontier of 6 zones — the far corner is the deadliest and richest. Extract at any stagecoach.' }),
+        el('div', { class: 'section-label', text: 'IRON' }), loadout,
         el('div', { class: 'section-label', text: `TRINKETS — equip up to ${slots} (${g.save.loadout.length}/${slots})` }),
-        el('div', { class: 'loadout trinket-loadout' }, trinketChips),
+        el('div', { class: 'loadout trinket-loadout' }, chips),
         el('div', { class: 'menu-buttons row' }, [
-          this.bigBtn('START RAID', () => { KTC.Audio.click(); g.startRaid(); }),
-          this.btn('GENERAL STORE', () => { KTC.Audio.click(); g.setState('shop'); }),
-          this.btn('TITLE', () => { KTC.Audio.click(); g.setState('menu'); }),
+          this.bigBtn('DEPLOY', () => { KTC.Audio.click(); g.startRun(); }),
+          this.btn('CLOSE', () => { KTC.Audio.click(); g.closeBench(); }),
         ]),
-        el('div', { class: 'hint', text: 'Loadout trinkets & your iron are insured — kept even if you die. Loot and items FOUND in the raid are lost unless you extract.' }),
+        el('div', { class: 'hint', text: 'Your equipped iron & trinkets are insured. Loot, materials, and items found in the field are lost if you die.' }),
       ]);
     }
-    // re-render camp in place (after equip)
-    renderCamp2() { this.root.querySelectorAll('.screen').forEach((n) => n.remove()); this.renderCamp(); }
 
-    // ---------------- shop ----------------
-    renderShop() {
+    renderWorkbench() {
       const g = this.game;
+      const wl = g.save.benches.workbench;
       const rows = [];
-
-      rows.push(el('div', { class: 'section-label', text: 'IRON — buy & equip' }));
-      for (const id of KTC.Weapons.order) {
-        const w = KTC.Weapons.get(id);
-        const owned = !!g.save.weapons[id];
-        const equipped = g.save.equipped === id;
-        let action;
-        if (equipped) action = el('span', { class: 'tag equipped', text: 'EQUIPPED' });
-        else if (owned) action = this.smallBtn('EQUIP', () => { g.save.equipped = id; KTC.Save.save(g.save); this.reShop(); });
-        else action = this.buyBtn(w.price, () => {
-          if (g.save.gold < w.price) return this.deny();
-          g.save.gold -= w.price; g.save.weapons[id] = true; g.save.equipped = id;
-          KTC.Save.save(g.save); KTC.Audio.coin(); this.reShop();
-        });
-        rows.push(el('div', { class: 'shop-row' }, [
-          el('div', { class: 'shop-info' }, [
-            el('div', { class: 'shop-name', text: w.name }),
-            el('div', { class: 'shop-desc', text: w.desc }),
-            el('div', { class: 'shop-stats', text:
-              `mag ${w.magSize} · ${w.pellets > 1 ? w.pellets + ' pellets' : 'range ' + w.proj.range} · ${w.auto ? 'auto' : 'semi'} · reload ${w.reloadTime}s` }),
-          ]),
-          action,
-        ]));
-      }
-
-      rows.push(el('div', { class: 'section-label', text: 'UPGRADES — permanent' }));
+      // bench level + upgrade
+      const bcost = benchCost(wl);
+      const benchAction = wl >= WORKBENCH_MAX ? el('span', { class: 'tag equipped', text: 'MAX' })
+        : el('button', { class: 'btn buy', html: this.costHtml(bcost), onclick: () => {
+            if (!this.canAfford(bcost)) return this.denyMat();
+            this.spend(bcost); g.save.benches.workbench++; KTC.Save.save(g.save); KTC.Audio.craft(); this.reBench();
+          } });
+      rows.push(el('div', { class: 'shop-row bench-head' }, [
+        el('div', { class: 'shop-info' }, [
+          el('div', { class: 'shop-name', text: 'Upgrade Workbench · Lv ' + wl }),
+          el('div', { class: 'shop-desc', text: 'A better bench unlocks higher upgrade tiers.' }),
+        ]), benchAction,
+      ]));
+      // upgrade tracks, gated by bench level, paid in materials
       for (const key in KTC.Save.UPGRADES) {
         const u = KTC.Save.UPGRADES[key];
         const lvl = g.save.upgrades[key];
-        const maxed = lvl >= u.max;
-        const price = KTC.Save.upgradePrice(key, lvl);
-        const dots = el('div', { class: 'dots' }, Array.from({ length: u.max }, (_, i) =>
-          el('span', { class: 'dot' + (i < lvl ? ' on' : '') })));
+        const cap = Math.min(u.max, wl + 1);
+        const dots = el('div', { class: 'dots' }, Array.from({ length: u.max }, (_, i) => el('span', { class: 'dot' + (i < lvl ? ' on' : '') })));
         let action;
-        if (maxed) action = el('span', { class: 'tag equipped', text: 'MAX' });
-        else action = this.buyBtn(price, () => {
-          if (g.save.gold < price) return this.deny();
-          g.save.gold -= price; g.save.upgrades[key]++; KTC.Save.save(g.save); KTC.Audio.coin(); this.reShop();
-        });
+        if (lvl >= u.max) action = el('span', { class: 'tag equipped', text: 'MAX' });
+        else if (lvl >= cap) action = el('span', { class: 'tag', text: 'Needs Bench Lv ' + (lvl + 1) });
+        else {
+          const cost = matCost(lvl);
+          action = el('button', { class: 'btn buy', html: this.costHtml(cost), onclick: () => {
+            if (!this.canAfford(cost)) return this.denyMat();
+            this.spend(cost); g.save.upgrades[key]++; KTC.Save.save(g.save); KTC.Audio.craft(); this.reBench();
+          } });
+        }
         rows.push(el('div', { class: 'shop-row' }, [
-          el('div', { class: 'shop-info' }, [
-            el('div', { class: 'shop-name', text: u.name }),
-            el('div', { class: 'shop-desc', text: u.desc }),
-            dots,
-          ]),
+          el('div', { class: 'shop-info' }, [el('div', { class: 'shop-name', text: u.name }), el('div', { class: 'shop-desc', text: u.desc }), dots]),
           action,
         ]));
       }
+      this.screen('shop', [
+        el('h2', { class: 'screen-title', text: 'WORKBENCH' }),
+        el('div', { class: 'gold-line', html: this.matHtml(g.save.materials) }),
+        el('div', { class: 'shop-list' }, rows),
+        this.closeRow(),
+      ]);
+    }
 
-      rows.push(el('div', { class: 'section-label', text: 'TRINKETS — worn charms, stack them for synergy' }));
+    renderGunsmith() {
+      const g = this.game;
+      const rows = [];
+      rows.push(el('div', { class: 'section-label', text: 'IRON — buy & equip (gold)' }));
+      for (const id of KTC.Weapons.order) {
+        const w = KTC.Weapons.get(id);
+        const owned = !!g.save.weapons[id], equipped = g.save.equipped === id;
+        let action;
+        if (equipped) action = el('span', { class: 'tag equipped', text: 'EQUIPPED' });
+        else if (owned) action = this.smallBtn('EQUIP', () => { g.save.equipped = id; KTC.Save.save(g.save); this.reBench(); });
+        else action = this.buyBtn(w.price, () => { if (g.save.gold < w.price) return this.deny(); g.save.gold -= w.price; g.save.weapons[id] = true; g.save.equipped = id; KTC.Save.save(g.save); KTC.Audio.coin(); this.reBench(); });
+        rows.push(el('div', { class: 'shop-row' }, [
+          el('div', { class: 'shop-info' }, [
+            el('div', { class: 'shop-name', html: `${w.name}${w.mech ? ' <span class="mech">· ' + w.mech + '</span>' : ''}` }),
+            el('div', { class: 'shop-desc', text: w.desc }),
+            el('div', { class: 'shop-stats', text: `mag ${w.magSize} · ${w.pellets > 1 ? w.pellets + ' pellets' : 'range ' + w.proj.range} · ${w.auto ? 'auto' : 'semi'} · reload ${w.reloadTime}s` }),
+          ]), action,
+        ]));
+      }
+      rows.push(el('div', { class: 'section-label', text: 'TRINKETS — worn charms (gold)' }));
       for (const id of KTC.Trinkets.order) {
         const t = KTC.Trinkets.get(id);
-        const owned = !!g.save.trinkets[id];
-        const price = KTC.Trinkets.price(id);
-        const action = owned
-          ? el('span', { class: 'tag equipped', text: 'OWNED' })
-          : this.buyBtn(price, () => {
-              if (g.save.gold < price) return this.deny();
-              g.save.gold -= price; g.save.trinkets[id] = true;
-              KTC.Save.save(g.save); KTC.Audio.trinket(); this.reShop();
-            });
+        const owned = !!g.save.trinkets[id], price = KTC.Trinkets.price(id);
+        const action = owned ? el('span', { class: 'tag equipped', text: 'OWNED' })
+          : this.buyBtn(price, () => { if (g.save.gold < price) return this.deny(); g.save.gold -= price; g.save.trinkets[id] = true; KTC.Save.save(g.save); KTC.Audio.trinket(); this.reBench(); });
         rows.push(el('div', { class: 'shop-row' }, [
           el('div', { class: 'shop-info' }, [
             el('div', { class: 'shop-name', html: `<span class="rar-${t.rarity} ti">${t.icon}</span> ${t.name}` }),
             el('div', { class: 'shop-desc', text: t.desc }),
             el('div', { class: 'shop-stats', text: t.rarity }),
-          ]),
-          action,
+          ]), action,
         ]));
       }
-
       this.screen('shop', [
-        el('h2', { class: 'screen-title', text: 'GENERAL STORE' }),
+        el('h2', { class: 'screen-title', text: 'GUNSMITH' }),
         this.goldLine(),
         el('div', { class: 'shop-list' }, rows),
-        el('div', { class: 'menu-buttons' }, [
-          this.bigBtn('BACK TO CAMP', () => { KTC.Audio.click(); this.game.setState('camp'); }),
-        ]),
+        this.closeRow(),
       ]);
     }
-    reShop() { this.root.querySelectorAll('.screen').forEach((n) => n.remove()); this.renderShop(); }
-    deny() { KTC.Audio.hit(); this.toast('Not enough gold, partner.'); }
 
-    // ---------------- result screens ----------------
+    // ---------------- results ----------------
     renderResult(win) {
       const g = this.game, r = g.run;
       const total = g.runValue();
-      const lines = [
-        `Kills <b>${r.kills}</b>`,
-        `Best combo <b>x${r.comboMax}</b>`,
-        `Time <b>${U.formatTime(r.time)}</b>`,
-      ];
-      // itemize the haul — what you banked, or exactly what the dirt kept
-      const itemRows = r.satchel.map((it) =>
-        el('div', { class: 'haul-row', html: `<span>${it.name}</span><span class="coin">◉ ${it.value}</span>` }));
-      if (r.gold > 0) {
-        itemRows.push(el('div', { class: 'haul-row', html: `<span>Loose gold</span><span class="coin">◉ ${r.gold}</span>` }));
-      }
+      const lines = [`Kills <b>${r.kills}</b>`, `Best combo <b>x${r.comboMax}</b>`, `Time <b>${U.formatTime(r.time)}</b>`];
+      const itemRows = r.satchel.map((it) => el('div', { class: 'haul-row', html: `<span>${it.name}</span><span class="coin">◉ ${it.value}</span>` }));
+      if (r.gold > 0) itemRows.push(el('div', { class: 'haul-row', html: `<span>Loose gold</span><span class="coin">◉ ${r.gold}</span>` }));
+      const matTotal = KTC.Zones.matOrder.reduce((s, k) => s + (r.materials[k] || 0), 0);
+      if (matTotal > 0) itemRows.push(el('div', { class: 'haul-row', html: `<span>Materials</span><span>${this.matHtml(r.materials, true)}</span>` }));
 
-      // trinkets / guns found this raid (kept on extract, lost on death)
       const foundChips = [];
-      for (const id of r.foundTrinkets) {
-        const t = KTC.Trinkets.get(id);
-        if (t) foundChips.push(el('div', { class: 'trinket-chip rar-' + t.rarity, title: t.name }, [el('span', { class: 'ti', text: t.icon })]));
-      }
-      for (const id of r.foundWeapons) {
-        const w = KTC.Weapons.get(id);
-        if (w) foundChips.push(el('div', { class: 'trinket-chip', title: w.name }, [el('span', { class: 'ti', text: '🔫' })]));
-      }
+      for (const id of r.foundTrinkets) { const t = KTC.Trinkets.get(id); if (t) foundChips.push(el('div', { class: 'trinket-chip rar-' + t.rarity, title: t.name }, [el('span', { class: 'ti', text: t.icon })])); }
+      for (const id of r.foundWeapons) { const w = KTC.Weapons.get(id); if (w) foundChips.push(el('div', { class: 'trinket-chip', title: w.name }, [el('span', { class: 'ti', text: '🔫' })])); }
       const foundBlock = foundChips.length ? el('div', { class: 'found-block' }, [
         el('div', { class: 'section-label', text: win ? 'ITEMS KEPT' : 'ITEMS LOST' }),
         el('div', { class: 'trinket-row center' + (win ? '' : ' lost') }, foundChips),
@@ -320,16 +303,12 @@ window.KTC = window.KTC || {};
 
       this.screen('result ' + (win ? 'win' : 'lose'), [
         el('h1', { class: 'result-title', text: win ? 'EXTRACTED' : 'YOU DIED' }),
-        el('div', { class: 'result-loot', html: win
-          ? `<span class="coin">◉</span> ${total} banked`
-          : `<span class="coin">◉</span> ${total} lost in the dirt` }),
+        el('div', { class: 'result-loot', html: win ? `<span class="coin">◉</span> ${total} banked` : `<span class="coin">◉</span> ${total} lost in the dirt` }),
         itemRows.length ? el('div', { class: 'haul-list' + (win ? '' : ' lost') }, itemRows) : null,
         foundBlock,
         el('div', { class: 'result-stats', html: lines.join(' &nbsp;·&nbsp; ') }),
-        el('div', { class: 'gold-line', html: `Stash: <span class="coin">◉</span> ${g.save.gold}` }),
-        el('div', { class: 'menu-buttons' }, [
-          this.bigBtn('BACK TO CAMP', () => { KTC.Audio.click(); g.setState('camp'); }),
-        ]),
+        el('div', { class: 'gold-line', html: `Stash: <span class="coin">◉</span> ${g.save.gold} &nbsp; ${this.matHtml(g.save.materials)}` }),
+        el('div', { class: 'menu-buttons' }, [this.bigBtn('BACK TO BASE', () => { KTC.Audio.click(); g.enterBase(); })]),
       ]);
     }
 
@@ -339,13 +318,9 @@ window.KTC = window.KTC || {};
         el('h2', { class: 'screen-title', text: 'PAUSED' }),
         el('div', { class: 'menu-buttons' }, [
           this.bigBtn('RESUME', () => { KTC.Audio.click(); g.setState('raid'); }),
-          this.btn('ABANDON RAID', () => {
-            KTC.Audio.click();
-            // abandoning forfeits the run bag, like dying but without a death
-            g.save.stats.raids++; KTC.Save.save(g.save); g.setState('camp');
-          }),
+          this.btn('ABANDON RUN', () => { KTC.Audio.click(); g.save.stats.raids++; KTC.Save.save(g.save); g.enterBase(); }),
         ]),
-        el('div', { class: 'hint', text: 'Abandoning leaves your carried loot behind.' }),
+        el('div', { class: 'hint', text: 'Abandoning leaves everything you were carrying in the field.' }),
       ]);
     }
 
@@ -354,55 +329,45 @@ window.KTC = window.KTC || {};
     btn(label, fn) { return el('button', { class: 'btn', text: label, onclick: (e) => fn(e.currentTarget) }); }
     smallBtn(label, fn) { return el('button', { class: 'btn small', text: label, onclick: (e) => fn(e.currentTarget) }); }
     buyBtn(price, fn) { return el('button', { class: 'btn buy', html: `<span class="coin">◉</span> ${price}`, onclick: (e) => fn(e.currentTarget) }); }
+    toast(msg) { this.toastEl.textContent = msg; this.toastEl.classList.remove('hidden'); this._toastT = 2.2; }
+    deny() { KTC.Audio.hit(); this.toast('Not enough gold, partner.'); }
+    denyMat() { KTC.Audio.hit(); this.toast('Not enough materials.'); }
 
-    toast(msg) {
-      this.toastEl.textContent = msg;
-      this.toastEl.classList.remove('hidden');
-      this._toastT = 2.2;
+    // ---------------- base HUD ----------------
+    updateBaseHUD() {
+      this.baseMats.innerHTML = `<span class="coin">◉</span> ${this.game.save.gold} &nbsp; ${this.matHtml(this.game.save.materials)}`;
+      if (this._toastT > 0) { this._toastT -= 1 / 60; if (this._toastT <= 0) this.toastEl.classList.add('hidden'); }
     }
 
-    // ---------------- per-frame HUD ----------------
+    // ---------------- run HUD ----------------
     updateHUD() {
       const g = this.game, p = g.player, r = g.run;
-      if (!p) return;
+      if (!p || !r) return;
 
-      // ammo pips
       const mag = p.magSize();
       if (this._pipCount !== mag) {
-        this._pipCount = mag;
-        this.ammoRow.innerHTML = '';
+        this._pipCount = mag; this.ammoRow.innerHTML = '';
         for (let i = 0; i < mag; i++) this.ammoRow.appendChild(el('div', { class: 'pip' }));
       }
       const pips = this.ammoRow.children;
       for (let i = 0; i < pips.length; i++) pips[i].className = 'pip' + (i < p.ammo ? ' on' : '');
-      if (p.reloading) {
-        this.reloadBar.classList.add('show');
-        this.reloadFill.style.width = (100 * (1 - p.reloadT / p.reloadTotal)) + '%';
-      } else {
-        this.reloadBar.classList.remove('show');
-      }
+      if (p.reloading) { this.reloadBar.classList.add('show'); this.reloadFill.style.width = (100 * (1 - p.reloadT / p.reloadTotal)) + '%'; }
+      else this.reloadBar.classList.remove('show');
       const wdef = p.weapon();
-      const mech = wdef.mech ? ' · ' + wdef.mech : '';
-      this.weaponName.textContent = wdef.name + mech + (p.reloading ? ' — RELOADING' : (p.ammo === 0 ? ' — EMPTY' : ''));
+      this.weaponName.textContent = wdef.name + (wdef.mech ? ' · ' + wdef.mech : '') + (p.reloading ? ' — RELOADING' : (p.ammo === 0 ? ' — EMPTY' : ''));
 
-      // active trinkets
       const tstamp = g.trinkets.join(',');
       if (tstamp !== this._trinketStamp) {
-        this._trinketStamp = tstamp;
-        this.trinketRow.innerHTML = '';
-        const counts = {};
-        for (const id of g.trinkets) counts[id] = (counts[id] || 0) + 1;
+        this._trinketStamp = tstamp; this.trinketRow.innerHTML = '';
+        const counts = {}; for (const id of g.trinkets) counts[id] = (counts[id] || 0) + 1;
         for (const id in counts) {
-          const t = KTC.Trinkets.get(id);
-          if (!t) continue;
-          const chip = el('div', { class: 'trinket-chip rar-' + t.rarity, title: t.name + ' — ' + t.desc },
-            [el('span', { class: 'ti', text: t.icon })]);
+          const t = KTC.Trinkets.get(id); if (!t) continue;
+          const chip = el('div', { class: 'trinket-chip rar-' + t.rarity, title: t.name + ' — ' + t.desc }, [el('span', { class: 'ti', text: t.icon })]);
           if (counts[id] > 1) chip.appendChild(el('span', { class: 'tx', text: '×' + counts[id] }));
           this.trinketRow.appendChild(chip);
         }
       }
 
-      // showdown meter
       const sd = g.showdown;
       this.showdownEl.classList.remove('hidden');
       this.sdFill.style.width = (100 * (sd.active ? sd.t / (3 + g.mods.showdownDurationBonus) : sd.meter)) + '%';
@@ -410,60 +375,55 @@ window.KTC = window.KTC || {};
       this.showdownEl.classList.toggle('ready', !sd.active && sd.meter >= 1);
       this.sdLabel.textContent = sd.active ? 'SHOWDOWN!' : (sd.meter >= 1 ? 'SHOWDOWN READY — Q / RMB' : 'SHOWDOWN');
 
-      // hearts
       if (this._heartMax !== p.maxHp) {
-        this._heartMax = p.maxHp;
-        this.heartsEl.innerHTML = '';
+        this._heartMax = p.maxHp; this.heartsEl.innerHTML = '';
         for (let i = 0; i < p.maxHp; i++) this.heartsEl.appendChild(el('div', { class: 'heart' }));
       }
       const hearts = this.heartsEl.children;
       for (let i = 0; i < hearts.length; i++) hearts[i].className = 'heart' + (i < p.hp ? ' on' : '');
 
-      // counters
       this.killsEl.textContent = r.kills;
       this.timerEl.textContent = U.formatTime(r.time);
-      this.lootEl.innerHTML =
-        `<span class="coin">◉</span> ${r.gold} <span class="val">✦ ${r.satchel.length}/${r.cap}</span>`;
+      this.lootEl.innerHTML = `<span class="coin">◉</span> ${r.gold} <span class="val">✦ ${r.satchel.length}/${r.cap}</span>`;
+      this.matsEl.innerHTML = this.matHtml(r.materials, true);
 
-      // satchel panel while Tab is held (game keeps running)
+      // threat bar (0..~20 mapped to full, colour shifts to red)
+      const tv = U.clamp(g.threat / 20, 0, 1);
+      this.threatFill.style.width = (tv * 100) + '%';
+      this.threatFill.style.background = `hsl(${U.lerp(90, 0, tv)}, 60%, 45%)`;
+
+      // zone label on the threat readout
+      const zone = g.level.zoneAt(p.x, p.y);
+      this.threatWrap.querySelector('.threat-label').textContent = (zone ? KTC.Zones.biome(zone.biome).name.toUpperCase() : 'THREAT');
+
       if (KTC.Input.keys['Tab']) {
-        const stamp = r.satchel.length + '/' + r.cap;
+        const stamp = r.satchel.length + '/' + r.cap + this.matHtml(r.materials);
         if (stamp !== this._satchelStamp) {
           this._satchelStamp = stamp;
-          const rows = r.satchel.map((it) =>
-            `<div class="satchel-row"><span>${it.name}</span><span class="coin">◉ ${it.value}</span></div>`);
+          const rows = r.satchel.map((it) => `<div class="satchel-row"><span>${it.name}</span><span class="coin">◉ ${it.value}</span></div>`);
           const total = r.satchel.reduce((s, it) => s + it.value, 0);
           this.satchelPanel.innerHTML =
             `<div class="satchel-title">SATCHEL ${r.satchel.length}/${r.cap}</div>` +
             (rows.length ? rows.join('') : '<div class="satchel-row empty">empty — loot containers (hold E)</div>') +
             `<div class="satchel-row total"><span>Valuables</span><span class="coin">◉ ${total}</span></div>` +
-            `<div class="satchel-row"><span>Loose gold</span><span class="coin">◉ ${r.gold}</span></div>`;
+            `<div class="satchel-row"><span>Loose gold</span><span class="coin">◉ ${r.gold}</span></div>` +
+            `<div class="satchel-row"><span>Materials</span><span>${this.matHtml(r.materials, true) || '—'}</span></div>`;
         }
         this.satchelPanel.classList.remove('hidden');
-      } else {
-        this.satchelPanel.classList.add('hidden');
-        this._satchelStamp = '';
-      }
+      } else { this.satchelPanel.classList.add('hidden'); this._satchelStamp = ''; }
 
-      if (r.combo >= 3) {
-        this.comboEl.classList.remove('hidden');
-        this.comboEl.textContent = 'COMBO x' + r.combo;
-      } else this.comboEl.classList.add('hidden');
+      if (r.combo >= 3) { this.comboEl.classList.remove('hidden'); this.comboEl.textContent = 'COMBO x' + r.combo; }
+      else this.comboEl.classList.add('hidden');
 
-      // extraction status
       const ex = g.extract;
-      if (ex && !ex.done && ex.progress > 0) {
+      if (ex && ex.progress > 0) {
         this.extractEl.classList.remove('hidden');
         const remain = Math.ceil(g.HOLD_TIME - ex.progress);
         this.extractEl.textContent = ex.holding ? `EXTRACTING… ${remain}` : 'STAY WITH THE COACH!';
         this.extractEl.classList.toggle('warn', !ex.holding);
       } else this.extractEl.classList.add('hidden');
 
-      // toast decay
-      if (this._toastT > 0) {
-        this._toastT -= 1 / 60;
-        if (this._toastT <= 0) this.toastEl.classList.add('hidden');
-      }
+      if (this._toastT > 0) { this._toastT -= 1 / 60; if (this._toastT <= 0) this.toastEl.classList.add('hidden'); }
     }
   }
 

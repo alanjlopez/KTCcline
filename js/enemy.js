@@ -325,27 +325,16 @@ window.KTC = window.KTC || {};
   }
 
   // ---- wave director ----
+  // Pressure is driven by game.threat (which climbs with time and depth) and by
+  // the biome the player is standing in: deeper/richer zones spawn more, and
+  // deadlier, crows. That's the "stay longer / go deeper = more danger" stake.
   class Spawner {
-    constructor() { this.t = 0; this.timer = 0.8; this.frenzy = false; }
-
-    reset() { this.t = 0; this.timer = 0.8; this.frenzy = false; }
-
-    difficulty() { return 1 + this.t / 45; }        // grows ~1 tier / 45s
+    constructor() { this.timer = 0.8; this.frenzy = false; }
+    reset() { this.timer = 0.8; this.frenzy = false; }
 
     maxAlive(game) {
-      const base = 6 + Math.floor(this.t / 16);
-      return Math.min(this.frenzy ? base + 8 : base, 28) + game.raidsCleared;
-    }
-
-    pickType(game) {
-      const d = this.difficulty();
-      const r = Math.random();
-      if (this.frenzy) return r < 0.7 ? 'rusher' : 'gunman';   // swarm favors pressure
-      const snipers = game.enemies.filter((e) => e.type === 'sniper' && !e.dead).length;
-      if (d > 1.8 && snipers < 2 && r < 0.14) return 'sniper';
-      if (d > 2.4 && r < 0.26) return 'brute';
-      if (d > 1.2 && r < 0.42) return 'gunman';
-      return 'rusher';
+      const base = 6 + Math.floor(game.threat * 1.1) + game.raidsCleared;
+      return Math.min(base, 34) + (this.frenzy ? 8 : 0);
     }
 
     spawnPoint(game) {
@@ -353,7 +342,7 @@ window.KTC = window.KTC || {};
       for (let tries = 0; tries < 24; tries++) {
         const x = U.rand(30, game.level.w - 30);
         const y = U.rand(30, game.level.h - 30);
-        if (U.dist(x, y, p.x, p.y) < 260) continue;      // not on top of player
+        if (U.dist(x, y, p.x, p.y) < 260 || U.dist(x, y, p.x, p.y) > 620) continue; // ring around player
         let blocked = false;
         for (const s of game.level.solids) {
           if (x > s.x - 6 && x < s.x + s.w + 6 && y > s.y - 6 && y < s.y + s.h + 6) { blocked = true; break; }
@@ -363,21 +352,31 @@ window.KTC = window.KTC || {};
       return null;
     }
 
+    pickType(game, biome) {
+      if (this.frenzy && Math.random() < 0.6) return Math.random() < 0.75 ? 'rusher' : 'gunman';
+      let type = KTC.Zones.rollEnemy(biome);
+      if (type === 'sniper' && game.enemies.filter((e) => e.type === 'sniper' && !e.dead).length >= 2) type = 'gunman';
+      return type;
+    }
+
     update(dt, game) {
-      this.t += dt;
-      this.frenzy = game.extract && game.extract.active !== false && !game.extract.done && game.extract.holding;
+      this.frenzy = !!(game.extract && game.extract.holding);
+      const zone = game.level.zoneAt(game.player.x, game.player.y);
+      const biome = zone ? zone.biome : 'ghost';
+      const bio = KTC.Zones.biome(biome);
       this.timer -= dt;
       if (this.timer <= 0) {
         if (game.enemies.length < this.maxAlive(game)) {
           const pt = this.spawnPoint(game);
           if (pt) {
-            const type = this.pickType(game);
-            const tier = Math.floor(this.difficulty());
+            const type = this.pickType(game, biome);
+            const tier = (zone ? zone.tier : 0) + Math.floor(game.threat / 4) + 1;
             game.enemies.push(new Enemy(pt.x, pt.y, type, tier));
           }
         }
-        let base = U.clamp(2.0 - this.t / 40, 0.5, 2.0);
-        if (this.frenzy) base *= 0.4;
+        // interval shortens as threat climbs and in denser biomes
+        let base = U.clamp(2.4 - game.threat * 0.11, 0.4, 2.4) / (bio.density || 1);
+        if (this.frenzy) base *= 0.45;
         this.timer = base * U.rand(0.7, 1.2);
       }
     }

@@ -93,6 +93,8 @@ window.KTC = window.KTC || {};
     zap() { this._env('square', 1400, 0.06, 0.14, 500); this._noise(0.05, 0.12, 4000); },
     trinket() { [660, 880, 1180].forEach((f, i) => setTimeout(() => this._env('triangle', f, 0.1, 0.18, f * 1.1), i * 70)); },
     showdown() { this._env('sawtooth', 320, 0.6, 0.28, 120); this._noise(0.5, 0.2, 600); setTimeout(() => this._env('triangle', 523, 0.3, 0.2, 784), 120); },
+    // base / crafting cues
+    craft() { this._env('square', 180, 0.06, 0.16, 140); setTimeout(() => this._noise(0.1, 0.2, 1600), 60); setTimeout(() => this._env('triangle', 660, 0.12, 0.16, 880), 120); },
     extractDone() { [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => this._env('triangle', f, 0.16, 0.2, f), i * 90)); },
     death() { [330, 262, 196, 130].forEach((f, i) => setTimeout(() => this._env('sawtooth', f, 0.25, 0.22, f * 0.8), i * 130)); },
     click() { this._env('square', 220, 0.03, 0.1, 180); },

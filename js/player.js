@@ -136,6 +136,9 @@ window.KTC = window.KTC || {};
       this.x = U.clamp(this.x, 6, game.level.w - 6);
       this.y = U.clamp(this.y, 6, game.level.h - 6);
 
+      // in the home base you only walk around — no shooting, reloading, or looting
+      if (game.state === 'base') return;
+
       // ---- looting: stand still next to a container and hold E ----
       if (this.lootStunT > 0) this.lootStunT -= dt;
       this.nearContainer = null;

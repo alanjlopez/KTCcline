@@ -313,6 +313,67 @@ window.KTC = window.KTC || {};
         ctx.restore();
       }
     },
+    // ---- base hub props ----
+    tent(ctx, tint) {
+      shadow(ctx, 16, 0.18);
+      ctx.fillStyle = tint || '#6a5238';
+      ctx.beginPath();
+      ctx.moveTo(0, -26); ctx.lineTo(-16, -2); ctx.lineTo(16, -2); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.beginPath(); ctx.moveTo(0, -26); ctx.lineTo(4, -2); ctx.lineTo(16, -2); ctx.closePath(); ctx.fill();
+      px(ctx, -4, -14, 8, 12, '#1c150d');           // entrance flap
+      px(ctx, -1, -27, 2, 4, PAL.woodDark);         // pole tip
+    },
+    campfire(ctx) {
+      shadow(ctx, 10, 0.2);
+      for (let i = 0; i < 5; i++) {
+        const a = i * (KTC.Util.TAU / 5);
+        px(ctx, Math.cos(a) * 7 - 1, Math.sin(a) * 4 - 1, 4, 2, PAL.woodDark);
+      }
+      const t = performance.now() / 120;
+      ctx.fillStyle = '#e08a3a';
+      ctx.beginPath(); ctx.moveTo(-4, -2); ctx.lineTo(0, -12 - Math.sin(t) * 3); ctx.lineTo(4, -2); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#f0c060';
+      ctx.beginPath(); ctx.moveTo(-2, -2); ctx.lineTo(0, -8 - Math.sin(t * 1.3) * 2); ctx.lineTo(2, -2); ctx.closePath(); ctx.fill();
+    },
+    gate(ctx) {
+      shadow(ctx, 20, 0.14);
+      px(ctx, -22, -30, 5, 30, PAL.woodDark);
+      px(ctx, 17, -30, 5, 30, PAL.woodDark);
+      px(ctx, -24, -34, 48, 6, PAL.wood);
+      px(ctx, -24, -34, 48, 2, PAL.woodLight);
+      // hanging sign
+      px(ctx, -10, -28, 20, 8, '#3a2d1e');
+      ctx.fillStyle = '#c9a24a'; ctx.font = '5px "Courier New", monospace'; ctx.textAlign = 'center';
+      ctx.fillText('THE FIELD', 0, -22); ctx.textAlign = 'left';
+    },
+    // benches — deploy map table, workbench, gunsmith
+    bench(ctx, type) {
+      shadow(ctx, 15, 0.18);
+      px(ctx, -14, -13, 28, 11, PAL.wood);          // tabletop
+      px(ctx, -14, -13, 28, 2, PAL.woodLight);
+      px(ctx, -13, -2, 3, 4, PAL.woodDark);         // legs
+      px(ctx, 10, -2, 3, 4, PAL.woodDark);
+      if (type === 'deploy') {
+        px(ctx, -10, -20, 20, 9, '#cabf9a');        // spread map
+        ctx.fillStyle = '#7a2f2c';
+        for (let i = 0; i < 4; i++) px(ctx, -8 + i * 5, -18 + (i % 2) * 4, 2, 2, '#7a2f2c');
+        px(ctx, 6, -22, 1, 4, PAL.metalLight);      // pins
+      } else if (type === 'workbench') {
+        px(ctx, -12, -19, 10, 6, PAL.metal);        // anvil
+        px(ctx, -13, -13, 12, 2, PAL.metalLight);
+        px(ctx, 4, -18, 2, 5, PAL.woodDark);        // hammer
+        px(ctx, 3, -19, 5, 2, PAL.metalLight);
+        px(ctx, 8, -17, 3, 4, '#9a6fd0');           // a relic
+      } else { // gunsmith
+        px(ctx, -12, -17, 14, 2, PAL.metal);        // rifle on rack
+        px(ctx, -12, -17, 4, 2, PAL.woodDark);
+        px(ctx, 2, -20, 8, 3, PAL.metal);           // pistol
+        px(ctx, 6, -17, 2, 2, PAL.woodDark);
+        px(ctx, -10, -13, 3, 3, '#c9a24a');         // brass
+      }
+    },
+
     // extraction point: a waiting stagecoach
     stagecoach(ctx, glow) {
       shadow(ctx, 24);

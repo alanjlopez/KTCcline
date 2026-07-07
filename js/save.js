@@ -22,6 +22,8 @@ window.KTC = window.KTC || {};
   function defaults() {
     return {
       gold: 0,
+      materials: { scrap: 0, iron: 0, relic: 0 },   // crafting stockpile
+      benches: { workbench: 1, gunsmith: 1 },        // bench levels (base hub)
       weapons: { revolver: true },
       equipped: 'revolver',
       trinkets: {},                 // owned trinket ids
@@ -57,12 +59,16 @@ window.KTC = window.KTC || {};
       const weapons = Object.assign({ revolver: true }, data.weapons || {});
       const trinkets = Object.assign({}, data.trinkets || {});
       const loadout = Array.isArray(data.loadout) ? data.loadout : [];
+      const materials = Object.assign({}, d.materials, data.materials || {});
+      const benches = Object.assign({}, d.benches, data.benches || {});
       data = Object.assign(d, data);
       data.upgrades = upgrades;
       data.stats = stats;
       data.weapons = weapons;
       data.trinkets = trinkets;
       data.loadout = loadout;
+      data.materials = materials;
+      data.benches = benches;
       this._mem = data;
       return data;
     },
