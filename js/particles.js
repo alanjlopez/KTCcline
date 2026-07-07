@@ -10,6 +10,7 @@ window.KTC = window.KTC || {};
     constructor() {
       this.list = [];
       this.texts = [];
+      this.bolts = [];      // chain-lightning arcs
       this.decals = [];     // permanent-ish blood/dust marks baked lazily
       this.shakeT = 0;
       this.shakeMag = 0;
@@ -79,6 +80,21 @@ window.KTC = window.KTC || {};
       });
     }
 
+    // jagged lightning arc from a->b, drawn in world space for a few frames
+    bolt(x1, y1, x2, y2) {
+      const segs = 6;
+      const pts = [{ x: x1, y: y1 }];
+      for (let i = 1; i < segs; i++) {
+        const t = i / segs;
+        pts.push({
+          x: U.lerp(x1, x2, t) + U.rand(-6, 6),
+          y: U.lerp(y1, y2, t) + U.rand(-6, 6),
+        });
+      }
+      pts.push({ x: x2, y: y2 });
+      this.bolts.push({ pts, life: 0.14, max: 0.14 });
+    }
+
     text(x, y, str, color = '#e8e0cf', opts = {}) {
       this.texts.push({
         x, y, str, color,
@@ -115,6 +131,11 @@ window.KTC = window.KTC || {};
         t.y += t.vy * dt;
         t.vy *= 0.92;
       }
+
+      for (let i = this.bolts.length - 1; i >= 0; i--) {
+        this.bolts[i].life -= dt;
+        if (this.bolts[i].life <= 0) this.bolts.splice(i, 1);
+      }
     }
 
     render(ctx) {
@@ -123,6 +144,23 @@ window.KTC = window.KTC || {};
         ctx.fillStyle = p.color;
         const s = p.size;
         ctx.fillRect(p.x - s / 2, p.y - s / 2, s, s);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    renderBolts(ctx) {
+      for (const b of this.bolts) {
+        const a = U.clamp(b.life / b.max, 0, 1);
+        ctx.globalAlpha = a;
+        ctx.strokeStyle = '#bfe6ff';
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        ctx.moveTo(b.pts[0].x, b.pts[0].y);
+        for (let i = 1; i < b.pts.length; i++) ctx.lineTo(b.pts[i].x, b.pts[i].y);
+        ctx.stroke();
+        ctx.strokeStyle = '#eaf6ff';
+        ctx.lineWidth = 1;
+        ctx.stroke();
       }
       ctx.globalAlpha = 1;
     }
@@ -145,6 +183,7 @@ window.KTC = window.KTC || {};
     clear() {
       this.list.length = 0;
       this.texts.length = 0;
+      this.bolts.length = 0;
       this.shakeT = 0; this.shakeMag = 0; this.shakeX = 0; this.shakeY = 0;
     }
   }

@@ -54,13 +54,13 @@ window.KTC = window.KTC || {};
     }
 
     // One bullet is always lethal.
-    hurt(dmg, angle, game) {
+    hurt(dmg, angle, game, crit) {
       if (this.dead) return;
       KTC.Audio.hit();
-      this.die(game, angle);
+      this.die(game, angle, crit);
     }
 
-    die(game, angle) {
+    die(game, angle, crit) {
       this.dead = true;
       const a = angle == null ? this.aim + Math.PI : angle;
       game.particles.blood(this.x, this.y - this.hh * 0.4, a);
@@ -71,7 +71,7 @@ window.KTC = window.KTC || {};
       game.particles.shake(this.type === 'brute' ? 6 : 2.5, 0.18);
       KTC.Audio.enemyDie();
       KTC.Loot.dropFromEnemy(game, this.x, this.y, this);
-      game.onEnemyKilled(this);
+      game.onEnemyKilled(this, !!crit);
     }
 
     update(dt, game) {

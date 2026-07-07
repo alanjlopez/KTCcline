@@ -81,6 +81,8 @@ window.KTC = window.KTC || {};
         }
         return;
       }
+      if (this.kind === 'trinket') { this.dead = true; game.addTrinket(this.name, this.x, this.y); return; }
+      if (this.kind === 'weapon') { this.dead = true; game.equipFoundWeapon(this.name, this.x, this.y); return; }
       this.dead = true;
       game.addGold(this.value, this.x, this.y);
       KTC.Audio.coin();
@@ -102,6 +104,30 @@ window.KTC = window.KTC || {};
         ctx.lineTo(this.x, y + 3 + fb); ctx.lineTo(this.x - 3, y - 1 + fb);
         ctx.closePath(); ctx.fill();
         S.px(ctx, this.x - 1, y - 2 + fb, 1, 1, '#cdeef0');
+      } else if (this.kind === 'trinket') {
+        // glowing amulet — pulses to draw the eye
+        const gl = 0.5 + 0.5 * Math.sin(this.bob * 1.6);
+        ctx.globalAlpha = 0.35 + 0.3 * gl;
+        ctx.fillStyle = '#b98bff';
+        ctx.beginPath(); ctx.arc(this.x, y + fb, 7, 0, U.TAU); ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = '#d9c2ff';
+        ctx.beginPath();
+        for (let i = 0; i < 5; i++) {
+          const a = -Math.PI / 2 + i * (U.TAU / 5);
+          const r = i % 1 === 0 ? 4 : 2;
+          ctx[i ? 'lineTo' : 'moveTo'](this.x + Math.cos(a) * 4, y + fb + Math.sin(a) * 4);
+        }
+        ctx.closePath(); ctx.fill();
+        S.px(ctx, this.x - 1, y - 1 + fb, 2, 2, '#fff');
+      } else if (this.kind === 'weapon') {
+        S.px(ctx, this.x - 5, y - 2 + fb, 10, 3, S.PAL.metal);
+        S.px(ctx, this.x - 5, y - 2 + fb, 4, 3, S.PAL.woodDark);
+        S.px(ctx, this.x - 4, y + 1 + fb, 2, 3, S.PAL.woodDark);
+        ctx.globalAlpha = 0.3 + 0.2 * Math.sin(this.bob * 2);
+        ctx.fillStyle = '#8ecfd4';
+        ctx.beginPath(); ctx.arc(this.x, y + fb, 8, 0, U.TAU); ctx.fill();
+        ctx.globalAlpha = 1;
       } else { // health / bandage
         S.px(ctx, this.x - 3, y - 3 + fb, 6, 6, '#c7bfae');
         S.px(ctx, this.x - 3, y - 1 + fb, 6, 2, '#c6533f');
@@ -116,10 +142,10 @@ window.KTC = window.KTC || {};
       this.type = type;             // 'crate' | 'barrel' | 'well' | 'wagon'
       this.opened = false;
       // hold-E channel length: richer caches take longer (more exposure)
-      this.channelTime = { crate: 0.9, barrel: 0.9, wagon: 1.6, well: 2.0 }[type] || 0.9;
+      this.channelTime = { crate: 0.9, barrel: 0.9, wagon: 1.6, well: 2.0, cache: 1.6, weaponrack: 1.4 }[type] || 0.9;
       this.lootProgress = 0;
-      this.r = type === 'crate' ? 9 : type === 'barrel' ? 8 : 16;
-      this.hh = type === 'well' ? 34 : 15;
+      this.r = type === 'well' ? 16 : type === 'wagon' ? 16 : 9;
+      this.hh = type === 'well' ? 34 : type === 'weaponrack' ? 18 : 15;
     }
 
     open(game) {
@@ -130,6 +156,19 @@ window.KTC = window.KTC || {};
         color: ['#5a4c3c', '#3a3025', '#6d5c47'], speedMin: 20, speedMax: 90,
         lifeMin: 0.3, lifeMax: 0.6, size: 2,
       });
+      // special caches yield roguelike items instead of gold
+      if (this.type === 'cache') {
+        game.pickups.push(new Pickup(this.x, this.y - 4, 'trinket', 0, KTC.Trinkets.roll(new Set(game.trinkets))));
+        game.particles.text(this.x, this.y - this.hh - 4, 'TRINKET!', '#c9a2ff', { life: 1 });
+        KTC.Audio.trinket();
+        return;
+      }
+      if (this.type === 'weaponrack') {
+        game.pickups.push(new Pickup(this.x, this.y - 4, 'weapon', 0, KTC.Weapons.rollFind()));
+        game.particles.text(this.x, this.y - this.hh - 4, 'NEW IRON!', '#8ecfd4', { life: 1 });
+        KTC.Audio.trinket();
+        return;
+      }
       KTC.Audio.pickup();
       const drops = this.lootTable();
       for (const d of drops) {
@@ -154,7 +193,11 @@ window.KTC = window.KTC || {};
       ctx.save();
       ctx.translate(this.x, this.y);
       if (this.lootProgress > 0 && !this.opened) ctx.filter = 'brightness(1.25)';
-      if (this.opened && this.type !== 'well' && this.type !== 'wagon') {
+      if (this.type === 'cache') {
+        S.cache(ctx, this.opened);
+      } else if (this.type === 'weaponrack') {
+        S.weaponrack(ctx, this.opened);
+      } else if (this.opened && this.type !== 'well' && this.type !== 'wagon') {
         // emptied crate/barrel: pried-open remains
         ctx.globalAlpha = 0.85;
         S.px(ctx, -7, -3, 14, 3, S.PAL.woodDark);

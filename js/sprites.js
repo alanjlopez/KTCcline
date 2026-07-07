@@ -278,6 +278,41 @@ window.KTC = window.KTC || {};
       px(ctx, -6, -11, 12, 1.5, PAL.metal);
       px(ctx, -6, -5, 12, 1.5, PAL.metal);
     },
+    // ornate strongbox holding a trinket — glints purple to stand out
+    cache(ctx, opened) {
+      shadow(ctx, 10);
+      px(ctx, -9, -12, 18, 12, '#3a2d3f');
+      px(ctx, -9, -12, 18, 3, '#5a4568');
+      px(ctx, -9, -8, 18, 1.5, '#c9a24a');   // gold band
+      if (!opened) {
+        px(ctx, -11, -16, 22, 5, '#4a3a56');  // domed lid
+        px(ctx, -1.5, -10, 3, 4, '#c9a24a');  // lock
+        ctx.save();
+        ctx.globalAlpha = 0.4 + 0.25 * Math.sin(performance.now() / 260);
+        ctx.fillStyle = '#b98bff';
+        ctx.beginPath(); ctx.ellipse(0, -8, 16, 12, 0, 0, KTC.Util.TAU); ctx.fill();
+        ctx.restore();
+      } else {
+        px(ctx, -11, -18, 22, 4, '#4a3a56');  // lid flipped open
+        px(ctx, -8, -11, 16, 3, '#17120f');
+      }
+    },
+    // a rack with a spare iron on it
+    weaponrack(ctx, opened) {
+      shadow(ctx, 10);
+      px(ctx, -10, -3, 20, 3, PAL.woodDark);
+      px(ctx, -9, -16, 2, 14, PAL.woodDark);
+      px(ctx, 7, -16, 2, 14, PAL.woodDark);
+      if (!opened) {
+        px(ctx, -9, -14, 18, 3, PAL.metal);
+        px(ctx, -9, -14, 6, 3, PAL.woodDark);
+        ctx.save();
+        ctx.globalAlpha = 0.3 + 0.2 * Math.sin(performance.now() / 300);
+        ctx.fillStyle = '#8ecfd4';
+        ctx.beginPath(); ctx.ellipse(0, -12, 15, 10, 0, 0, KTC.Util.TAU); ctx.fill();
+        ctx.restore();
+      }
+    },
     // extraction point: a waiting stagecoach
     stagecoach(ctx, glow) {
       shadow(ctx, 24);

@@ -52,10 +52,23 @@ window.KTC = window.KTC || {};
       this.heartsEl = el('div', { class: 'hud-hearts' });
       this.extractEl = el('div', { class: 'hud-extract hidden' });
 
+      // active trinkets (icons) below the weapon panel
+      this.trinketRow = el('div', { class: 'trinket-row' });
+      this._trinketStamp = '';
+
+      // showdown meter (bottom-centre)
+      this.sdFill = el('div', { class: 'sd-fill' });
+      this.sdLabel = el('div', { class: 'sd-label' });
+      this.showdownEl = el('div', { class: 'showdown-meter hidden' }, [
+        el('div', { class: 'sd-bar' }, [this.sdFill]), this.sdLabel,
+      ]);
+
       this.hud.appendChild(wpanel);
+      this.hud.appendChild(this.trinketRow);
       this.hud.appendChild(el('div', { class: 'hud-top-center' }, [this.killsEl, this.comboEl]));
       this.hud.appendChild(el('div', { class: 'hud-top-right' }, [this.timerEl, this.lootEl]));
       this.hud.appendChild(this.heartsEl);
+      this.hud.appendChild(this.showdownEl);
       this.hud.appendChild(this.extractEl);
 
       this.toastEl = el('div', { class: 'toast hidden' });
@@ -127,9 +140,9 @@ window.KTC = window.KTC || {};
         el('div', { class: 'stat-row', html:
           `Extractions <b>${st.extractions}</b> · Deaths <b>${st.deaths}</b> · Kills <b>${st.kills}</b> · Best haul <b>${st.bestLoot}</b>` }),
         el('div', { class: 'controls-help', html:
-          '<b>WASD</b> move · <b>Mouse</b> aim · <b>Click</b> shoot · <b>R</b> reload · <b>Space</b> dodge-roll · <b>E</b> loot · <b>Tab</b> satchel · <b>Esc</b> pause' }),
+          '<b>WASD</b> move · <b>Mouse</b> aim · <b>Click</b> shoot · <b>R</b> reload · <b>Space</b> dodge · <b>E</b> loot · <b>Q / RMB</b> showdown · <b>Tab</b> satchel · <b>Esc</b> pause' }),
         el('div', { class: 'blurb', text:
-          'One bullet, one dead Crow — theirs take longer, so watch for the tells: a raised knife, a glowing aim line, a sniper\'s laser that locks before the shot. Rummage containers (hold E) to fill your satchel, then reach the stagecoach and hold it to escape with the haul. Die and the dirt keeps everything. Bank what you extract; spend it in camp to come back deadlier.' }),
+          'One bullet, one dead Crow — theirs take longer, so read the tells: a raised knife, a glowing aim line, a sniper\'s laser that locks before the shot. Crack glowing caches for trinkets that stack into wild builds, find stranger guns on the racks, and fill your Showdown meter to slow time and clean house. Rummage for loot, then hold the stagecoach to escape — die and the dirt keeps it all.' }),
       ]);
     }
 
@@ -145,17 +158,43 @@ window.KTC = window.KTC || {};
           onclick: () => { KTC.Audio.click(); g.save.equipped = id; KTC.Save.save(g.save); this.renderCamp2(); },
         }, [el('span', { text: w.name })]);
       }));
+      // trinket loadout — equip owned trinkets up to the slot limit
+      const slots = KTC.Save.deriveStats(g.save).trinketSlots;
+      g.save.loadout = (g.save.loadout || []).filter((id) => g.save.trinkets[id]).slice(0, slots);
+      const ownedTrinkets = KTC.Trinkets.order.filter((id) => g.save.trinkets[id]);
+      const trinketChips = ownedTrinkets.length
+        ? ownedTrinkets.map((id) => {
+            const t = KTC.Trinkets.get(id);
+            const on = g.save.loadout.includes(id);
+            return el('button', {
+              class: 'trinket-item rar-' + t.rarity + (on ? ' sel' : ''),
+              title: t.name + ' — ' + t.desc,
+              onclick: () => {
+                KTC.Audio.click();
+                const L = g.save.loadout;
+                const i = L.indexOf(id);
+                if (i >= 0) L.splice(i, 1);
+                else if (L.length < slots) L.push(id);
+                else this.toast('Trinket belt full — upgrade it in the store.');
+                KTC.Save.save(g.save); this.renderCamp2();
+              },
+            }, [el('span', { class: 'ti', text: t.icon }), el('span', { class: 'tn', text: t.name })]);
+          })
+        : [el('div', { class: 'hint', text: 'None owned yet. Crack open glowing caches in a raid, then EXTRACT to keep what you find.' })];
+
       this._campScreen = this.screen('camp', [
         el('h2', { class: 'screen-title', text: 'CAMP' }),
         this.goldLine(),
         el('div', { class: 'section-label', text: 'LOADOUT — pick your iron' }),
         loadout,
+        el('div', { class: 'section-label', text: `TRINKETS — equip up to ${slots} (${g.save.loadout.length}/${slots})` }),
+        el('div', { class: 'loadout trinket-loadout' }, trinketChips),
         el('div', { class: 'menu-buttons row' }, [
           this.bigBtn('START RAID', () => { KTC.Audio.click(); g.startRaid(); }),
           this.btn('GENERAL STORE', () => { KTC.Audio.click(); g.setState('shop'); }),
           this.btn('TITLE', () => { KTC.Audio.click(); g.setState('menu'); }),
         ]),
-        el('div', { class: 'hint', text: 'Loot you carry is only yours once you EXTRACT. Die and it stays in the dirt.' }),
+        el('div', { class: 'hint', text: 'Loadout trinkets & your iron are insured — kept even if you die. Loot and items FOUND in the raid are lost unless you extract.' }),
       ]);
     }
     // re-render camp in place (after equip)
@@ -214,6 +253,28 @@ window.KTC = window.KTC || {};
         ]));
       }
 
+      rows.push(el('div', { class: 'section-label', text: 'TRINKETS — worn charms, stack them for synergy' }));
+      for (const id of KTC.Trinkets.order) {
+        const t = KTC.Trinkets.get(id);
+        const owned = !!g.save.trinkets[id];
+        const price = KTC.Trinkets.price(id);
+        const action = owned
+          ? el('span', { class: 'tag equipped', text: 'OWNED' })
+          : this.buyBtn(price, () => {
+              if (g.save.gold < price) return this.deny();
+              g.save.gold -= price; g.save.trinkets[id] = true;
+              KTC.Save.save(g.save); KTC.Audio.trinket(); this.reShop();
+            });
+        rows.push(el('div', { class: 'shop-row' }, [
+          el('div', { class: 'shop-info' }, [
+            el('div', { class: 'shop-name', html: `<span class="rar-${t.rarity} ti">${t.icon}</span> ${t.name}` }),
+            el('div', { class: 'shop-desc', text: t.desc }),
+            el('div', { class: 'shop-stats', text: t.rarity }),
+          ]),
+          action,
+        ]));
+      }
+
       this.screen('shop', [
         el('h2', { class: 'screen-title', text: 'GENERAL STORE' }),
         this.goldLine(),
@@ -241,12 +302,29 @@ window.KTC = window.KTC || {};
       if (r.gold > 0) {
         itemRows.push(el('div', { class: 'haul-row', html: `<span>Loose gold</span><span class="coin">◉ ${r.gold}</span>` }));
       }
+
+      // trinkets / guns found this raid (kept on extract, lost on death)
+      const foundChips = [];
+      for (const id of r.foundTrinkets) {
+        const t = KTC.Trinkets.get(id);
+        if (t) foundChips.push(el('div', { class: 'trinket-chip rar-' + t.rarity, title: t.name }, [el('span', { class: 'ti', text: t.icon })]));
+      }
+      for (const id of r.foundWeapons) {
+        const w = KTC.Weapons.get(id);
+        if (w) foundChips.push(el('div', { class: 'trinket-chip', title: w.name }, [el('span', { class: 'ti', text: '🔫' })]));
+      }
+      const foundBlock = foundChips.length ? el('div', { class: 'found-block' }, [
+        el('div', { class: 'section-label', text: win ? 'ITEMS KEPT' : 'ITEMS LOST' }),
+        el('div', { class: 'trinket-row center' + (win ? '' : ' lost') }, foundChips),
+      ]) : null;
+
       this.screen('result ' + (win ? 'win' : 'lose'), [
         el('h1', { class: 'result-title', text: win ? 'EXTRACTED' : 'YOU DIED' }),
         el('div', { class: 'result-loot', html: win
           ? `<span class="coin">◉</span> ${total} banked`
           : `<span class="coin">◉</span> ${total} lost in the dirt` }),
         itemRows.length ? el('div', { class: 'haul-list' + (win ? '' : ' lost') }, itemRows) : null,
+        foundBlock,
         el('div', { class: 'result-stats', html: lines.join(' &nbsp;·&nbsp; ') }),
         el('div', { class: 'gold-line', html: `Stash: <span class="coin">◉</span> ${g.save.gold}` }),
         el('div', { class: 'menu-buttons' }, [
@@ -303,7 +381,34 @@ window.KTC = window.KTC || {};
       } else {
         this.reloadBar.classList.remove('show');
       }
-      this.weaponName.textContent = p.weapon().name + (p.reloading ? ' — RELOADING' : (p.ammo === 0 ? ' — EMPTY' : ''));
+      const wdef = p.weapon();
+      const mech = wdef.mech ? ' · ' + wdef.mech : '';
+      this.weaponName.textContent = wdef.name + mech + (p.reloading ? ' — RELOADING' : (p.ammo === 0 ? ' — EMPTY' : ''));
+
+      // active trinkets
+      const tstamp = g.trinkets.join(',');
+      if (tstamp !== this._trinketStamp) {
+        this._trinketStamp = tstamp;
+        this.trinketRow.innerHTML = '';
+        const counts = {};
+        for (const id of g.trinkets) counts[id] = (counts[id] || 0) + 1;
+        for (const id in counts) {
+          const t = KTC.Trinkets.get(id);
+          if (!t) continue;
+          const chip = el('div', { class: 'trinket-chip rar-' + t.rarity, title: t.name + ' — ' + t.desc },
+            [el('span', { class: 'ti', text: t.icon })]);
+          if (counts[id] > 1) chip.appendChild(el('span', { class: 'tx', text: '×' + counts[id] }));
+          this.trinketRow.appendChild(chip);
+        }
+      }
+
+      // showdown meter
+      const sd = g.showdown;
+      this.showdownEl.classList.remove('hidden');
+      this.sdFill.style.width = (100 * (sd.active ? sd.t / (3 + g.mods.showdownDurationBonus) : sd.meter)) + '%';
+      this.showdownEl.classList.toggle('active', sd.active);
+      this.showdownEl.classList.toggle('ready', !sd.active && sd.meter >= 1);
+      this.sdLabel.textContent = sd.active ? 'SHOWDOWN!' : (sd.meter >= 1 ? 'SHOWDOWN READY — Q / RMB' : 'SHOWDOWN');
 
       // hearts
       if (this._heartMax !== p.maxHp) {

@@ -16,6 +16,7 @@ window.KTC = window.KTC || {};
     dodge:  { name: 'Cat Reflexes',      desc: 'Shorter dodge cooldown', max: 4, base: 70, step: 55 },
     speed:  { name: 'Trail Legs',        desc: 'Faster movement', max: 5, base: 55, step: 45 },
     satchel:{ name: 'Bigger Satchel',    desc: '+1 valuable slot', max: 4, base: 50, step: 40 },
+    slots:  { name: 'Trinket Belt',      desc: '+1 equipped trinket slot', max: 3, base: 90, step: 80 },
   };
 
   function defaults() {
@@ -23,7 +24,9 @@ window.KTC = window.KTC || {};
       gold: 0,
       weapons: { revolver: true },
       equipped: 'revolver',
-      upgrades: { maxHp: 0, ammo: 0, reload: 0, dodge: 0, speed: 0, satchel: 0 },
+      trinkets: {},                 // owned trinket ids
+      loadout: [],                  // equipped trinkets brought into a raid
+      upgrades: { maxHp: 0, ammo: 0, reload: 0, dodge: 0, speed: 0, satchel: 0, slots: 0 },
       stats: { extractions: 0, raids: 0, deaths: 0, bestLoot: 0, kills: 0 },
       muted: false,
     };
@@ -52,10 +55,14 @@ window.KTC = window.KTC || {};
       const upgrades = Object.assign({}, d.upgrades, data.upgrades || {});
       const stats = Object.assign({}, d.stats, data.stats || {});
       const weapons = Object.assign({ revolver: true }, data.weapons || {});
+      const trinkets = Object.assign({}, data.trinkets || {});
+      const loadout = Array.isArray(data.loadout) ? data.loadout : [];
       data = Object.assign(d, data);
       data.upgrades = upgrades;
       data.stats = stats;
       data.weapons = weapons;
+      data.trinkets = trinkets;
+      data.loadout = loadout;
       this._mem = data;
       return data;
     },
@@ -81,6 +88,7 @@ window.KTC = window.KTC || {};
         dodgeCd: Math.max(0.25, 0.7 - u.dodge * 0.11),
         speed: 150 + u.speed * 11,
         satchelCap: 6 + u.satchel,
+        trinketSlots: 2 + u.slots,
         weaponId: data.weapons[data.equipped] ? data.equipped : 'revolver',
       };
     },

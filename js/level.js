@@ -145,6 +145,17 @@ window.KTC = window.KTC || {};
       this.addContainer(this.w * 0.24, this.h * 0.74, 'wagon');
       this.addContainer(this.w * 0.62, this.h * 0.7, 'wagon');
 
+      // one roguelike trinket cache + one weapon rack, placed away from spawn
+      const far = () => {
+        for (let i = 0; i < 20; i++) {
+          const x = U.rand(this.w * 0.16, this.w * 0.84), y = U.rand(this.h * 0.28, this.h * 0.9);
+          if (U.dist(x, y, this.w / 2, this.h * 0.6) > 240) return { x, y };
+        }
+        return { x: this.w * 0.2, y: this.h * 0.35 };
+      };
+      const cp = far(); this.addContainer(cp.x, cp.y, 'cache');
+      const wp = far(); this.addContainer(wp.x, wp.y, 'weaponrack');
+
       // scattered crates/barrels around the square
       for (let i = 0; i < 12; i++) {
         const x = U.rand(this.w * 0.14, this.w * 0.86);

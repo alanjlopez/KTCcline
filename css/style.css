@@ -141,6 +141,53 @@ html, body {
   color: var(--ink); font-size: 14px; letter-spacing: 1px;
 }
 
+/* active trinkets under the weapon panel */
+.trinket-row {
+  position: absolute; top: 92px; left: 14px;
+  display: flex; flex-wrap: wrap; gap: 4px; max-width: 220px;
+}
+.trinket-row.center { position: static; justify-content: center; max-width: none; }
+.trinket-chip {
+  position: relative; width: 26px; height: 26px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(18,16,12,0.85); border: 2px solid var(--edge2);
+  border-radius: 5px; font-size: 15px; line-height: 1;
+}
+.trinket-chip .tx { position: absolute; bottom: -2px; right: -2px; font-size: 9px; color: var(--gold); }
+.trinket-row.lost .trinket-chip { opacity: 0.4; filter: grayscale(0.8); }
+.rar-common { border-color: #6b5c47; }
+.rar-uncommon { border-color: #5a8f6a; box-shadow: 0 0 4px rgba(90,143,106,0.4); }
+.rar-rare { border-color: #a9863f; box-shadow: 0 0 6px rgba(200,150,60,0.5); }
+span.rar-common, span.rar-uncommon, span.rar-rare { border: 0; box-shadow: none; }
+
+/* showdown meter (bottom-centre) */
+.showdown-meter {
+  position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%);
+  width: 260px; text-align: center;
+}
+.sd-bar {
+  height: 8px; background: rgba(18,16,12,0.85);
+  border: 2px solid var(--edge2); border-radius: 5px; overflow: hidden;
+}
+.sd-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #8a5a1e, #e3c06a); transition: width .08s linear; }
+.sd-label { font-size: 10px; letter-spacing: 2px; color: var(--ink-dim); margin-top: 3px; }
+.showdown-meter.ready .sd-bar { border-color: var(--gold); box-shadow: 0 0 10px rgba(227,192,106,0.6); }
+.showdown-meter.ready .sd-label { color: var(--gold); animation: blink .6s steps(2) infinite; }
+.showdown-meter.active .sd-fill { background: linear-gradient(90deg, #e3c06a, #fff2c0); }
+.showdown-meter.active .sd-label { color: var(--gold); }
+
+/* camp trinket loadout chips */
+.trinket-loadout { max-width: 640px; }
+.trinket-item {
+  display: flex; align-items: center; gap: 6px;
+  font-family: var(--font); font-size: 13px; color: var(--ink);
+  background: var(--panel); border: 2px solid var(--edge);
+  border-radius: 5px; padding: 6px 12px; cursor: pointer;
+}
+.trinket-item .ti { font-size: 16px; }
+.trinket-item.sel { background: #322c1c; color: var(--gold); border-color: var(--gold); }
+.found-block { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+
 /* satchel contents (hold Tab) */
 .satchel-panel {
   position: absolute; top: 90px; right: 16px; width: 230px;

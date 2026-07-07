@@ -33,6 +33,7 @@ window.KTC = window.KTC || {};
       // weapon state
       this.weaponId = 'revolver';
       this.ammo = 6;
+      this.magBonusMods = 0;        // live capacity from trinket mods
       this.fireCd = 0;
       this.reloading = false;
       this.reloadT = 0;
@@ -53,6 +54,7 @@ window.KTC = window.KTC || {};
       this.flashT = 0;
       this.footT = 0;
       this.recoil = 0;
+      this.cheatUsed = false;       // Snake Oil: one save per raid
     }
 
     applyStats(st) {
@@ -62,11 +64,12 @@ window.KTC = window.KTC || {};
       this.reloadMult = st.reloadMult;
       this.dodgeCd = st.dodgeCd;
       this.magBonus = st.magBonus;
+      this.cheatUsed = false;
       this.setWeapon(st.weaponId || 'revolver');
     }
 
     weapon() { return KTC.Weapons.get(this.weaponId); }
-    magSize() { return this.weapon().magSize + this.magBonus; }
+    magSize() { return this.weapon().magSize + this.magBonus + this.magBonusMods; }
 
     setWeapon(id) {
       this.weaponId = id;
@@ -79,6 +82,7 @@ window.KTC = window.KTC || {};
 
     update(dt, game) {
       if (this.dead) return;
+      this.magBonusMods = game.mods ? game.mods.magBonus : 0;
       this.fireCd -= dt;
       if (this.rollCd > 0) this.rollCd -= dt;
       if (this.hitInvulnT > 0) this.hitInvulnT -= dt;
@@ -101,7 +105,7 @@ window.KTC = window.KTC || {};
       if (In.justPressed('Space') && this.rollT <= 0 && this.rollCd <= 0) {
         this.rollT = ROLL_DUR;
         this.rollDir = (ix || iy) ? Math.atan2(iy, ix) : this.aim;
-        this.rollCd = ROLL_DUR + this.dodgeCd;
+        this.rollCd = ROLL_DUR + this.dodgeCd * game.mods.dodgeCdMult;
         KTC.Audio.dodge();
         game.particles.dust(this.x, this.y, 6);
       }
@@ -113,7 +117,7 @@ window.KTC = window.KTC || {};
         this.vy = Math.sin(this.rollDir) * spd;
         if (U.chance(dt * 30)) game.particles.dust(this.x, this.y, 1);
       } else {
-        const target = this.speed;
+        const target = this.speed * game.mods.moveMult;
         this.vx = U.approach(this.vx, ix * target, target * 12 * dt);
         this.vy = U.approach(this.vy, iy * target, target * 12 * dt);
         // footstep dust
@@ -151,10 +155,13 @@ window.KTC = window.KTC || {};
         if (c.lootProgress >= c.channelTime) c.open(game);
       }
 
-      // weapon: reload (blocked while rummaging through a container)
+      // weapon: reload (blocked while rummaging through a container).
+      // A showdown keeps the cylinder topped up so you never stop to reload.
       const mag = this.magSize();
-      if (In.justPressed('KeyR') && !this.reloading && !this.looting && this.ammo < mag) this.startReload();
-      if (this.ammo <= 0 && !this.reloading && !this.looting) this.startReload();
+      const showdown = game.showdown && game.showdown.active;
+      if (showdown) { this.ammo = mag; this.reloading = false; }
+      if (In.justPressed('KeyR') && !this.reloading && !this.looting && this.ammo < mag) this.startReload(game);
+      if (this.ammo <= 0 && !this.reloading && !this.looting && !showdown) this.startReload(game);
       if (this.reloading) {
         this.reloadT -= dt;
         if (this.reloadT <= 0) {
@@ -166,10 +173,10 @@ window.KTC = window.KTC || {};
       }
 
       // shooting (blocked while reloading, mid-roll, or looting)
-      if (!this.reloading && !this.rolling() && !this.looting && this.ammo > 0 && this.fireCd <= 0) {
+      if (!this.reloading && !this.rolling() && !this.looting && (showdown || this.ammo > 0) && this.fireCd <= 0) {
         const w = this.weapon();
-        const wantFire = w.auto ? In.mouse.down : In.mouse.clicked;
-        if (wantFire) this.shoot(game);
+        const wantFire = (w.auto || showdown) ? In.mouse.down : In.mouse.clicked;
+        if (wantFire) this.shoot(game, showdown);
       }
     }
 
@@ -181,19 +188,30 @@ window.KTC = window.KTC || {};
       }
     }
 
-    shoot(game) {
+    shoot(game, free) {
       const w = this.weapon();
+      const m = game.mods;
+      const p = w.proj;
       const mx = this.x + Math.cos(this.aim) * 16;
       const my = this.y - 11 + Math.sin(this.aim) * 16;
-      for (let i = 0; i < w.pellets; i++) {
-        const a = this.aim + U.rand(-w.spread, w.spread);
+      const pellets = w.pellets + m.extraProjectiles;
+      const spread = w.spread + m.spreadBonus;
+      for (let i = 0; i < pellets; i++) {
+        const a = this.aim + U.rand(-spread, spread);
+        const crit = Math.random() < m.critChance;
         game.projectiles.push(new KTC.Projectile(mx, my, a, {
-          speed: w.proj.speed, damage: w.proj.damage, size: w.proj.size,
-          team: 'player', range: w.proj.range, pierce: w.proj.pierce, color: '#f0d98a',
+          speed: p.speed, damage: 1, size: p.size, team: 'player', range: p.range,
+          pierce: (p.pierce || 0) + m.pierce,
+          bounces: (p.bounces || 0) + m.bounces,
+          explosive: Math.max(p.explosive || 0, m.explosive),
+          homing: Math.max(p.homing || 0, m.homing),
+          chain: (p.chain || 0) + m.chain,
+          crit,
         }));
       }
-      this.ammo--;
-      this.fireCd = w.fireRate;
+      if (!free) this.ammo--;
+      const hot = m.hotStreak && game.run.combo >= 5 ? 0.7 : 1;
+      this.fireCd = w.fireRate * m.fireRateMult * hot * (free ? 0.6 : 1);
       this.flashT = 0.05;
       this.recoil = w.kick;
       game.particles.spark(mx, my, this.aim);
@@ -205,9 +223,10 @@ window.KTC = window.KTC || {};
       this.vy -= Math.sin(this.aim) * w.kick * 3;
     }
 
-    startReload() {
+    startReload(game) {
       this.reloading = true;
-      this.reloadTotal = this.weapon().reloadTime * this.reloadMult;
+      const rm = game ? game.mods.reloadMult : 1;
+      this.reloadTotal = this.weapon().reloadTime * this.reloadMult * rm;
       this.reloadT = this.reloadTotal;
       KTC.Audio.reload();
     }
@@ -221,7 +240,19 @@ window.KTC = window.KTC || {};
       game.onPlayerDamaged(dmg);
       game.particles.shake(7, 0.3);
       KTC.Audio.playerHurt();
-      if (this.hp <= 0) { this.hp = 0; this.die(game); }
+      if (this.hp <= 0) {
+        // Snake Oil — cheat death once per raid
+        if (game.mods.cheatDeath && !this.cheatUsed) {
+          this.cheatUsed = true;
+          this.hp = 1;
+          this.hitInvulnT = 1.4;
+          game.particles.text(this.x, this.y - this.hh - 8, 'CHEATED DEATH!', '#e3c06a', { life: 1.2, size: 8 });
+          game.particles.burst(this.x, this.y - 8, 20, { color: ['#e3c06a', '#fff'], speedMin: 40, speedMax: 160, lifeMin: 0.3, lifeMax: 0.7, size: 2 });
+          game.particles.shake(9, 0.4);
+          return;
+        }
+        this.hp = 0; this.die(game);
+      }
     }
 
     die(game) {

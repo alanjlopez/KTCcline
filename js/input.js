@@ -8,7 +8,7 @@ window.KTC = window.KTC || {};
   const Input = {
     keys: Object.create(null),        // physical code -> bool
     pressed: Object.create(null),     // edge: true on the frame first pressed
-    mouse: { sx: 0, sy: 0, wx: 0, wy: 0, down: false, clicked: false },
+    mouse: { sx: 0, sy: 0, wx: 0, wy: 0, down: false, clicked: false, rdown: false, rclicked: false },
     _canvas: null,
 
     init(canvas) {
@@ -34,13 +34,12 @@ window.KTC = window.KTC || {};
       });
 
       canvas.addEventListener('mousedown', (e) => {
-        if (e.button === 0) {
-          this.mouse.down = true;
-          this.mouse.clicked = true;
-        }
+        if (e.button === 0) { this.mouse.down = true; this.mouse.clicked = true; }
+        if (e.button === 2) { this.mouse.rdown = true; this.mouse.rclicked = true; }
       });
       window.addEventListener('mouseup', (e) => {
         if (e.button === 0) this.mouse.down = false;
+        if (e.button === 2) this.mouse.rdown = false;
       });
       canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     },
@@ -59,6 +58,7 @@ window.KTC = window.KTC || {};
     endFrame() {
       this.pressed = Object.create(null);
       this.mouse.clicked = false;
+      this.mouse.rclicked = false;
     },
 
     // Reset held state (used on focus loss / state changes).
