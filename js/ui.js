@@ -61,6 +61,11 @@ window.KTC = window.KTC || {};
       this.toastEl = el('div', { class: 'toast hidden' });
       this.hud.appendChild(this.toastEl);
 
+      // satchel contents panel, shown while Tab is held
+      this.satchelPanel = el('div', { class: 'satchel-panel hidden' });
+      this.hud.appendChild(this.satchelPanel);
+      this._satchelStamp = '';
+
       this.drawGunBadge();
     }
 
@@ -122,9 +127,9 @@ window.KTC = window.KTC || {};
         el('div', { class: 'stat-row', html:
           `Extractions <b>${st.extractions}</b> · Deaths <b>${st.deaths}</b> · Kills <b>${st.kills}</b> · Best haul <b>${st.bestLoot}</b>` }),
         el('div', { class: 'controls-help', html:
-          '<b>WASD</b> move · <b>Mouse</b> aim · <b>Click</b> shoot · <b>R</b> reload · <b>Space</b> dodge-roll · <b>Esc</b> pause' }),
+          '<b>WASD</b> move · <b>Mouse</b> aim · <b>Click</b> shoot · <b>R</b> reload · <b>Space</b> dodge-roll · <b>E</b> loot · <b>Tab</b> satchel · <b>Esc</b> pause' }),
         el('div', { class: 'blurb', text:
-          'Ride into the ruined town, gun down the Crows, and loot everything you can carry. Reach the stagecoach and hold it to escape with your haul — but if the Crows put you down, you lose every coin you were carrying. Bank what you extract, then spend it in camp to come back deadlier.' }),
+          'One bullet, one dead Crow — theirs take longer, so watch for the tells: a raised knife, a glowing aim line, a sniper\'s laser that locks before the shot. Rummage containers (hold E) to fill your satchel, then reach the stagecoach and hold it to escape with the haul. Die and the dirt keeps everything. Bank what you extract; spend it in camp to come back deadlier.' }),
       ]);
     }
 
@@ -179,7 +184,7 @@ window.KTC = window.KTC || {};
             el('div', { class: 'shop-name', text: w.name }),
             el('div', { class: 'shop-desc', text: w.desc }),
             el('div', { class: 'shop-stats', text:
-              `mag ${w.magSize} · dmg ${w.proj.damage}${w.pellets > 1 ? '×' + w.pellets : ''} · ${w.auto ? 'auto' : 'semi'} · reload ${w.reloadTime}s` }),
+              `mag ${w.magSize} · ${w.pellets > 1 ? w.pellets + ' pellets' : 'range ' + w.proj.range} · ${w.auto ? 'auto' : 'semi'} · reload ${w.reloadTime}s` }),
           ]),
           action,
         ]));
@@ -224,17 +229,24 @@ window.KTC = window.KTC || {};
     // ---------------- result screens ----------------
     renderResult(win) {
       const g = this.game, r = g.run;
+      const total = g.runValue();
       const lines = [
         `Kills <b>${r.kills}</b>`,
         `Best combo <b>x${r.comboMax}</b>`,
         `Time <b>${U.formatTime(r.time)}</b>`,
-        `Valuables <b>${r.valuables}</b>`,
       ];
+      // itemize the haul — what you banked, or exactly what the dirt kept
+      const itemRows = r.satchel.map((it) =>
+        el('div', { class: 'haul-row', html: `<span>${it.name}</span><span class="coin">◉ ${it.value}</span>` }));
+      if (r.gold > 0) {
+        itemRows.push(el('div', { class: 'haul-row', html: `<span>Loose gold</span><span class="coin">◉ ${r.gold}</span>` }));
+      }
       this.screen('result ' + (win ? 'win' : 'lose'), [
         el('h1', { class: 'result-title', text: win ? 'EXTRACTED' : 'YOU DIED' }),
         el('div', { class: 'result-loot', html: win
-          ? `<span class="coin">◉</span> ${r.loot} banked`
-          : `<span class="coin">◉</span> ${r.loot} lost in the dirt` }),
+          ? `<span class="coin">◉</span> ${total} banked`
+          : `<span class="coin">◉</span> ${total} lost in the dirt` }),
+        itemRows.length ? el('div', { class: 'haul-list' + (win ? '' : ' lost') }, itemRows) : null,
         el('div', { class: 'result-stats', html: lines.join(' &nbsp;·&nbsp; ') }),
         el('div', { class: 'gold-line', html: `Stash: <span class="coin">◉</span> ${g.save.gold}` }),
         el('div', { class: 'menu-buttons' }, [
@@ -305,7 +317,28 @@ window.KTC = window.KTC || {};
       // counters
       this.killsEl.textContent = r.kills;
       this.timerEl.textContent = U.formatTime(r.time);
-      this.lootEl.innerHTML = `<span class="coin">◉</span> ${r.loot}` + (r.valuables ? ` <span class="val">✦${r.valuables}</span>` : '');
+      this.lootEl.innerHTML =
+        `<span class="coin">◉</span> ${r.gold} <span class="val">✦ ${r.satchel.length}/${r.cap}</span>`;
+
+      // satchel panel while Tab is held (game keeps running)
+      if (KTC.Input.keys['Tab']) {
+        const stamp = r.satchel.length + '/' + r.cap;
+        if (stamp !== this._satchelStamp) {
+          this._satchelStamp = stamp;
+          const rows = r.satchel.map((it) =>
+            `<div class="satchel-row"><span>${it.name}</span><span class="coin">◉ ${it.value}</span></div>`);
+          const total = r.satchel.reduce((s, it) => s + it.value, 0);
+          this.satchelPanel.innerHTML =
+            `<div class="satchel-title">SATCHEL ${r.satchel.length}/${r.cap}</div>` +
+            (rows.length ? rows.join('') : '<div class="satchel-row empty">empty — loot containers (hold E)</div>') +
+            `<div class="satchel-row total"><span>Valuables</span><span class="coin">◉ ${total}</span></div>` +
+            `<div class="satchel-row"><span>Loose gold</span><span class="coin">◉ ${r.gold}</span></div>`;
+        }
+        this.satchelPanel.classList.remove('hidden');
+      } else {
+        this.satchelPanel.classList.add('hidden');
+        this._satchelStamp = '';
+      }
 
       if (r.combo >= 3) {
         this.comboEl.classList.remove('hidden');

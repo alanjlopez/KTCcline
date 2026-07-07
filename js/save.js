@@ -15,6 +15,7 @@ window.KTC = window.KTC || {};
     reload: { name: 'Quick Hands',       desc: 'Faster reloads', max: 4, base: 70, step: 55 },
     dodge:  { name: 'Cat Reflexes',      desc: 'Shorter dodge cooldown', max: 4, base: 70, step: 55 },
     speed:  { name: 'Trail Legs',        desc: 'Faster movement', max: 5, base: 55, step: 45 },
+    satchel:{ name: 'Bigger Satchel',    desc: '+1 valuable slot', max: 4, base: 50, step: 40 },
   };
 
   function defaults() {
@@ -22,7 +23,7 @@ window.KTC = window.KTC || {};
       gold: 0,
       weapons: { revolver: true },
       equipped: 'revolver',
-      upgrades: { maxHp: 0, ammo: 0, reload: 0, dodge: 0, speed: 0 },
+      upgrades: { maxHp: 0, ammo: 0, reload: 0, dodge: 0, speed: 0, satchel: 0 },
       stats: { extractions: 0, raids: 0, deaths: 0, bestLoot: 0, kills: 0 },
       muted: false,
     };
@@ -44,12 +45,17 @@ window.KTC = window.KTC || {};
         if (raw) data = JSON.parse(raw);
       } catch (e) { /* storage blocked */ }
       if (!data) data = this._mem || defaults();
-      // merge in any newly-added default fields
+      // Merge in any newly-added default fields. Sub-objects must be merged
+      // against pristine defaults BEFORE the top-level assign, which replaces
+      // the defaults' references with the stored ones.
       const d = defaults();
+      const upgrades = Object.assign({}, d.upgrades, data.upgrades || {});
+      const stats = Object.assign({}, d.stats, data.stats || {});
+      const weapons = Object.assign({ revolver: true }, data.weapons || {});
       data = Object.assign(d, data);
-      data.upgrades = Object.assign(d.upgrades, data.upgrades || {});
-      data.stats = Object.assign(d.stats, data.stats || {});
-      data.weapons = Object.assign({ revolver: true }, data.weapons || {});
+      data.upgrades = upgrades;
+      data.stats = stats;
+      data.weapons = weapons;
       this._mem = data;
       return data;
     },
@@ -74,6 +80,7 @@ window.KTC = window.KTC || {};
         reloadMult: Math.max(0.4, 1 - u.reload * 0.14),
         dodgeCd: Math.max(0.25, 0.7 - u.dodge * 0.11),
         speed: 150 + u.speed * 11,
+        satchelCap: 6 + u.satchel,
         weaponId: data.weapons[data.equipped] ? data.equipped : 'revolver',
       };
     },

@@ -81,6 +81,13 @@ window.KTC = window.KTC || {};
     coin() { this._env('triangle', 900, 0.06, 0.14, 1400); setTimeout(() => this._env('triangle', 1200, 0.05, 0.1, 1500), 50); },
     dodge() { this._noise(0.12, 0.2, 900); },
     extractTick() { this._env('sine', 520, 0.1, 0.16, 520); },
+    // enemy telegraph cues
+    chargeTick(freq) { this._env('sine', freq || 400, 0.08, 0.1, (freq || 400) * 1.15); },
+    lockOn() { this._env('square', 980, 0.14, 0.16, 980); },
+    bruteRoar() { this._env('sawtooth', 90, 0.5, 0.3, 45); this._noise(0.3, 0.2, 500); },
+    // looting cues
+    rustle() { this._noise(0.16, 0.18, 800); },
+    denyFull() { this._env('square', 200, 0.09, 0.14, 150); setTimeout(() => this._env('square', 150, 0.12, 0.14, 110), 90); },
     extractDone() { [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => this._env('triangle', f, 0.16, 0.2, f), i * 90)); },
     death() { [330, 262, 196, 130].forEach((f, i) => setTimeout(() => this._env('sawtooth', f, 0.25, 0.22, f * 0.8), i * 130)); },
     click() { this._env('square', 220, 0.03, 0.1, 180); },

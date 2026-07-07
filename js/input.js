@@ -17,8 +17,8 @@ window.KTC = window.KTC || {};
       window.addEventListener('keydown', (e) => {
         if (!this.keys[e.code]) this.pressed[e.code] = true;
         this.keys[e.code] = true;
-        // Stop space/arrows from scrolling the page while playing.
-        if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+        // Stop space/arrows from scrolling and Tab from moving focus while playing.
+        if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) {
           e.preventDefault();
         }
       });

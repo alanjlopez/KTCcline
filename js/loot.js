@@ -1,7 +1,9 @@
-// loot.js — pickups (gold, valuables, bandages), destructible/lootable
-// containers, and the helpers that drop loot from enemies and containers.
-// Loot collected during a raid lives in game.run.loot and is only banked on a
-// successful extraction — dying drops it all.
+// loot.js — pickups (gold, valuables, bandages), lootable containers, and the
+// helpers that drop loot from enemies. Containers are looted by standing next
+// to them and holding E — a channel that leaves you unable to shoot, mirroring
+// the reload-window tension. Gold is a weightless counter; valuables are items
+// that occupy limited satchel slots (see game.addValuable) and are only yours
+// once you extract.
 window.KTC = window.KTC || {};
 
 (function (KTC) {
@@ -25,6 +27,7 @@ window.KTC = window.KTC || {};
       this.bob = U.rand(0, U.TAU);
       this.life = 26;               // despawn safety
       this.dead = false;
+      this.fullT = 0;               // valuable: retry delay when satchel is full
       this.magnet = kind === 'gold' ? 70 : 40;
     }
 
@@ -32,6 +35,7 @@ window.KTC = window.KTC || {};
       this.life -= dt;
       if (this.life <= 0) { this.dead = true; return; }
       this.bob += dt * 4;
+      if (this.fullT > 0) this.fullT -= dt;
 
       if (!this.grounded) {
         this.vz -= 260 * dt;
@@ -43,36 +47,43 @@ window.KTC = window.KTC || {};
 
       const p = game.player;
       if (p.dead) return;
+      // a valuable that found the satchel full waits on the ground for a while
+      const blocked = this.kind === 'valuable' && (this.fullT > 0 || game.satchelFull());
       const d = U.dist(this.x, this.y, p.x, p.y);
-      if (this.grounded && d < this.magnet) {
+      if (this.grounded && d < this.magnet && !blocked) {
         const a = U.angle(this.x, this.y, p.x, p.y);
         const pull = U.lerp(240, 60, d / this.magnet);
         this.x += Math.cos(a) * pull * dt;
         this.y += Math.sin(a) * pull * dt;
       }
-      if (d < p.r + 6) this.collect(game);
+      if (d < p.r + 6 && !blocked) this.collect(game);
     }
 
     collect(game) {
-      this.dead = true;
       if (this.kind === 'health') {
+        this.dead = true;
         if (game.player.hp < game.player.maxHp) {
           game.player.hp++;
           game.particles.text(this.x, this.y - 14, '+1 HP', '#c6533f');
           KTC.Audio.pickup();
         } else {
           // convert to a little gold if already full
-          game.addLoot(8, this.x, this.y);
+          game.addGold(8, this.x, this.y);
         }
         return;
       }
       if (this.kind === 'valuable') {
-        game.addLoot(this.value, this.x, this.y, this.name);
-        KTC.Audio.coin();
-      } else {
-        game.addLoot(this.value, this.x, this.y);
-        KTC.Audio.coin();
+        if (game.addValuable(this.name, this.value, this.x, this.y)) {
+          this.dead = true;
+          KTC.Audio.coin();
+        } else {
+          this.fullT = 1.2;       // stays on the ground; try again later
+        }
+        return;
       }
+      this.dead = true;
+      game.addGold(this.value, this.x, this.y);
+      KTC.Audio.coin();
     }
 
     render(ctx) {
@@ -104,31 +115,22 @@ window.KTC = window.KTC || {};
       this.x = x; this.y = y;
       this.type = type;             // 'crate' | 'barrel' | 'well' | 'wagon'
       this.opened = false;
-      this.hp = type === 'well' ? 40 : type === 'wagon' ? 34 : 20;
+      // hold-E channel length: richer caches take longer (more exposure)
+      this.channelTime = { crate: 0.9, barrel: 0.9, wagon: 1.6, well: 2.0 }[type] || 0.9;
+      this.lootProgress = 0;
       this.r = type === 'crate' ? 9 : type === 'barrel' ? 8 : 16;
       this.hh = type === 'well' ? 34 : 15;
-      this.hurtT = 0;
     }
 
-    hurt(dmg, angle, game) {
-      if (this.opened) return;
-      this.hp -= dmg;
-      this.hurtT = 0.08;
-      game.particles.spark(this.x, this.y - 8, angle);
-      if (this.hp <= 0) this.open(game, true);
-    }
-
-    open(game, broke) {
+    open(game) {
       if (this.opened) return;
       this.opened = true;
-      if (broke) {
-        game.particles.burst(this.x, this.y - 8, 14, {
-          color: ['#5a4c3c', '#3a3025', '#6d5c47'], speedMin: 30, speedMax: 130,
-          lifeMin: 0.3, lifeMax: 0.7, size: 3,
-        });
-        game.particles.shake(4, 0.2);
-      }
-      KTC.Audio.hit();
+      this.lootProgress = 0;
+      game.particles.burst(this.x, this.y - 8, 10, {
+        color: ['#5a4c3c', '#3a3025', '#6d5c47'], speedMin: 20, speedMax: 90,
+        lifeMin: 0.3, lifeMax: 0.6, size: 2,
+      });
+      KTC.Audio.pickup();
       const drops = this.lootTable();
       for (const d of drops) {
         game.pickups.push(new Pickup(this.x + U.rand(-6, 6), this.y + U.rand(-4, 4), d.kind, d.value, d.name));
@@ -140,7 +142,7 @@ window.KTC = window.KTC || {};
       const out = [];
       const goldChunks = { crate: 2, barrel: 1, well: 3, wagon: 3 }[this.type] || 2;
       for (let i = 0; i < goldChunks; i++) out.push({ kind: 'gold', value: U.randInt(6, 16) });
-      const valChance = { crate: 0.18, barrel: 0.1, well: 0.5, wagon: 0.45 }[this.type] || 0.15;
+      const valChance = { crate: 0.22, barrel: 0.12, well: 0.65, wagon: 0.55 }[this.type] || 0.2;
       if (U.chance(valChance)) {
         out.push({ kind: 'valuable', value: U.randInt(35, 85), name: U.pick(VALUABLE_NAMES) });
       }
@@ -151,9 +153,9 @@ window.KTC = window.KTC || {};
     render(ctx) {
       ctx.save();
       ctx.translate(this.x, this.y);
-      if (this.hurtT > 0) ctx.filter = 'brightness(1.8)';
+      if (this.lootProgress > 0 && !this.opened) ctx.filter = 'brightness(1.25)';
       if (this.opened && this.type !== 'well' && this.type !== 'wagon') {
-        // broken remains
+        // emptied crate/barrel: pried-open remains
         ctx.globalAlpha = 0.85;
         S.px(ctx, -7, -3, 14, 3, S.PAL.woodDark);
         S.plank(ctx, -6, -2, 8, 0.3);
@@ -166,7 +168,7 @@ window.KTC = window.KTC || {};
       } else if (this.type === 'barrel') {
         S.barrel(ctx);
       } else {
-        S.crate(ctx, this.hurtT > 0);
+        S.crate(ctx, false);
       }
       ctx.restore();
     }

@@ -78,8 +78,15 @@ window.KTC = window.KTC || {};
       this.spawner.reset();
       this.camera.x = this.player.x;
       this.camera.y = this.player.y;
-      this.run = { loot: 0, kills: 0, time: 0, combo: 0, comboT: 0, comboMax: 0, valuables: 0 };
+      const stats = KTC.Save.deriveStats(this.save);
+      this.run = {
+        gold: 0,
+        satchel: [],                    // [{name, value}] — limited slots
+        cap: stats.satchelCap,
+        kills: 0, time: 0, combo: 0, comboT: 0, comboMax: 0,
+      };
       this.damageFlash = 0;
+      this._fullToastT = 0;
 
       // place the extraction stagecoach at the candidate farthest from spawn
       let best = this.level.extractCandidates[0], bd = -1;
@@ -115,20 +122,42 @@ window.KTC = window.KTC || {};
       // chaining kills pays a small bounty
       const bonus = Math.floor(r.combo / 3);
       if (bonus > 0) {
-        r.loot += bonus;
+        r.gold += bonus;
         this.particles.text(e.x, e.y - e.hh - 6, `x${r.combo}`, '#e3c06a', { life: 0.7, size: 7 });
       }
     }
 
-    addLoot(value, x, y, name) {
-      this.run.loot += value;
-      if (name) {
-        this.run.valuables++;
-        this.particles.text(x, y - 16, name, '#8ecfd4', { life: 1.1, size: 6 });
-        this.particles.text(x, y - 8, '+' + value, '#e3c06a', { life: 0.9, size: 7 });
-      } else {
-        this.particles.text(x, y - 10, '+' + value, '#e3c06a', { life: 0.7, size: 6 });
+    // gold is a weightless counter, carried loose in your pockets
+    addGold(value, x, y) {
+      this.run.gold += value;
+      this.particles.text(x, y - 10, '+' + value, '#e3c06a', { life: 0.7, size: 6 });
+    }
+
+    // valuables occupy satchel slots; returns false when the bag is full
+    addValuable(name, value, x, y) {
+      const r = this.run;
+      if (r.satchel.length >= r.cap) {
+        if (this._fullToastT <= 0) {
+          this._fullToastT = 1.5;
+          this.ui.toast('Satchel full!');
+          KTC.Audio.denyFull();
+        }
+        return false;
       }
+      r.satchel.push({ name, value });
+      this.particles.text(x, y - 16, name, '#8ecfd4', { life: 1.1, size: 6 });
+      this.particles.text(x, y - 8, '+' + value, '#e3c06a', { life: 0.9, size: 7 });
+      return true;
+    }
+
+    satchelFull() {
+      return this.run && this.run.satchel.length >= this.run.cap;
+    }
+
+    // everything the run is worth if you make it out alive
+    runValue() {
+      const r = this.run;
+      return r.gold + r.satchel.reduce((sum, it) => sum + it.value, 0);
     }
 
     onPlayerDamaged() {
@@ -148,11 +177,12 @@ window.KTC = window.KTC || {};
     extractSuccess() {
       this.extract.done = true;
       const s = this.save;
-      s.gold += this.run.loot;
+      const haul = this.runValue();
+      s.gold += haul;
       s.stats.extractions++;
       s.stats.raids++;
       s.stats.kills += this.run.kills;
-      s.stats.bestLoot = Math.max(s.stats.bestLoot, this.run.loot);
+      s.stats.bestLoot = Math.max(s.stats.bestLoot, haul);
       KTC.Save.save(s);
       this.raidsCleared++;
       KTC.Audio.extractDone();
@@ -211,7 +241,14 @@ window.KTC = window.KTC || {};
       for (const e of this.enemies) e.update(dt, this);
       for (const pr of this.projectiles) pr.update(dt, this);
       for (const pk of this.pickups) pk.update(dt, this);
-      for (const c of this.level.containers) if (c.hurtT > 0) c.hurtT -= dt;
+      // loot channels drain fast when abandoned (they don't hard-reset)
+      const channeling = p.looting ? p.nearContainer : null;
+      for (const c of this.level.containers) {
+        if (c !== channeling && c.lootProgress > 0 && !c.opened) {
+          c.lootProgress = Math.max(0, c.lootProgress - dt * 2);
+        }
+      }
+      if (this._fullToastT > 0) this._fullToastT -= dt;
       this.particles.update(dt);
       this.updateExtract(dt);
 
@@ -296,6 +333,7 @@ window.KTC = window.KTC || {};
 
       for (const pr of this.projectiles) pr.render(ctx);
       this.particles.render(ctx);
+      if (this.state === 'raid' || this.state === 'paused') this.renderLootPrompts(ctx);
       this.particles.renderText(ctx);
 
       // ---- screen-space overlays ----
@@ -309,6 +347,37 @@ window.KTC = window.KTC || {};
         // darken backdrop so DOM overlays read clearly
         ctx.fillStyle = 'rgba(20,18,14,0.55)';
         ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      }
+    }
+
+    // "HOLD E" prompt on the nearest closed container + progress rings on any
+    // container mid-channel (drawn in world space, so they track the camera)
+    renderLootPrompts(ctx) {
+      const p = this.player;
+      if (!p || p.dead) return;
+      const near = p.nearContainer;
+      if (near && !near.opened && near.lootProgress <= 0) {
+        ctx.font = '6px "Courier New", monospace';
+        ctx.textAlign = 'center';
+        const ty = near.y - near.hh - 6 + Math.sin(performance.now() / 300) * 1.2;
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillText('HOLD E', near.x + 0.6, ty + 0.6);
+        ctx.fillStyle = '#e8e0cf';
+        ctx.fillText('HOLD E', near.x, ty);
+        ctx.textAlign = 'left';
+      }
+      for (const c of this.level.containers) {
+        if (c.opened || c.lootProgress <= 0) continue;
+        ctx.save();
+        ctx.translate(c.x, c.y - 8);
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.beginPath(); ctx.arc(0, 0, 12, 0, U.TAU); ctx.stroke();
+        ctx.strokeStyle = '#e3c06a';
+        ctx.beginPath();
+        ctx.arc(0, 0, 12, -Math.PI / 2, -Math.PI / 2 + U.TAU * (c.lootProgress / c.channelTime));
+        ctx.stroke();
+        ctx.restore();
       }
     }
 

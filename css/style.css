@@ -141,6 +141,24 @@ html, body {
   color: var(--ink); font-size: 14px; letter-spacing: 1px;
 }
 
+/* satchel contents (hold Tab) */
+.satchel-panel {
+  position: absolute; top: 90px; right: 16px; width: 230px;
+  background: rgba(18,16,12,0.92);
+  border: 2px solid var(--edge2); border-radius: 6px;
+  padding: 10px 12px; font-size: 12px;
+}
+.satchel-title {
+  color: var(--gold); letter-spacing: 2px; font-size: 13px;
+  margin-bottom: 6px; border-bottom: 1px solid var(--edge); padding-bottom: 4px;
+}
+.satchel-row {
+  display: flex; justify-content: space-between; gap: 8px;
+  color: var(--ink); padding: 2px 0;
+}
+.satchel-row.empty { color: var(--ink-dim); font-style: italic; }
+.satchel-row.total { border-top: 1px solid var(--edge); margin-top: 4px; padding-top: 4px; color: var(--teal); }
+
 /* ---------------- overlay screens ---------------- */
 .screen {
   position: absolute; inset: 0; pointer-events: auto;
@@ -231,3 +249,12 @@ html, body {
 .result.lose .result-title { color: var(--red); }
 .result-loot { font-size: 24px; margin-top: 4px; }
 .result-stats { color: var(--ink-dim); font-size: 15px; }
+.haul-list {
+  width: min(360px, 80vw); max-height: 26vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 3px;
+  background: rgba(30,27,20,0.7); border: 1px solid var(--edge);
+  border-radius: 6px; padding: 8px 14px; font-size: 13px;
+}
+.haul-row { display: flex; justify-content: space-between; gap: 10px; color: var(--ink); }
+.haul-list.lost .haul-row { color: var(--ink-dim); text-decoration: line-through; }
+.haul-list.lost .haul-row .coin { color: var(--gold-dim); }

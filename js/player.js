@@ -43,6 +43,11 @@ window.KTC = window.KTC || {};
       this.rollCd = 0;
       this.rollDir = 0;
 
+      // loot channel state (hold E next to a container)
+      this.nearContainer = null;
+      this.looting = false;
+      this.lootStunT = 0;           // brief lockout after taking damage
+
       // timers
       this.hitInvulnT = 0;
       this.flashT = 0;
@@ -127,10 +132,29 @@ window.KTC = window.KTC || {};
       this.x = U.clamp(this.x, 6, game.level.w - 6);
       this.y = U.clamp(this.y, 6, game.level.h - 6);
 
-      // weapon: reload
+      // ---- looting: stand still next to a container and hold E ----
+      if (this.lootStunT > 0) this.lootStunT -= dt;
+      this.nearContainer = null;
+      let bestD2 = 32 * 32;
+      for (const c of game.level.containers) {
+        if (c.opened) continue;
+        const d2 = U.dist2(this.x, this.y, c.x, c.y - 4);
+        if (d2 < bestD2) { bestD2 = d2; this.nearContainer = c; }
+      }
+      this.looting = false;
+      if (this.nearContainer && In.keys['KeyE'] && !this.rolling() &&
+          !(ix || iy) && this.lootStunT <= 0) {
+        const c = this.nearContainer;
+        this.looting = true;
+        if (c.lootProgress === 0) KTC.Audio.rustle();
+        c.lootProgress += dt;
+        if (c.lootProgress >= c.channelTime) c.open(game);
+      }
+
+      // weapon: reload (blocked while rummaging through a container)
       const mag = this.magSize();
-      if (In.justPressed('KeyR') && !this.reloading && this.ammo < mag) this.startReload();
-      if (this.ammo <= 0 && !this.reloading) this.startReload();
+      if (In.justPressed('KeyR') && !this.reloading && !this.looting && this.ammo < mag) this.startReload();
+      if (this.ammo <= 0 && !this.reloading && !this.looting) this.startReload();
       if (this.reloading) {
         this.reloadT -= dt;
         if (this.reloadT <= 0) {
@@ -141,8 +165,8 @@ window.KTC = window.KTC || {};
         }
       }
 
-      // shooting (blocked while reloading or mid-roll)
-      if (!this.reloading && !this.rolling() && this.ammo > 0 && this.fireCd <= 0) {
+      // shooting (blocked while reloading, mid-roll, or looting)
+      if (!this.reloading && !this.rolling() && !this.looting && this.ammo > 0 && this.fireCd <= 0) {
         const w = this.weapon();
         const wantFire = w.auto ? In.mouse.down : In.mouse.clicked;
         if (wantFire) this.shoot(game);
@@ -193,6 +217,7 @@ window.KTC = window.KTC || {};
       this.hp -= dmg;
       this.hitInvulnT = HIT_IFRAME;
       this.flashT = 0.1;
+      this.lootStunT = 0.6;         // getting hit interrupts any loot channel
       game.onPlayerDamaged(dmg);
       game.particles.shake(7, 0.3);
       KTC.Audio.playerHurt();

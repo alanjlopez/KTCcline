@@ -70,6 +70,11 @@ window.KTC = window.KTC || {};
     if (gun === 'shotgun') {
       px(ctx, 7, -1.5, 11, 3, PAL.metal);
       px(ctx, 7, -1.5, 4, 3, PAL.woodDark);
+    } else if (gun === 'sniper') {
+      // extra-long barrel + scope for the marksman crow
+      px(ctx, 7, -1, 20, 2, PAL.metal);
+      px(ctx, 7, -1, 5, 2, PAL.woodDark);
+      px(ctx, 12, -3, 4, 2, PAL.metalLight);
     } else if (gun === 'rifle') {
       px(ctx, 7, -1, 15, 2, PAL.metal);
       px(ctx, 7, -1, 5, 2, PAL.woodDark);
@@ -171,6 +176,13 @@ window.KTC = window.KTC || {};
         figure(ctx, o, {
           pants: PAL.crowPants, shirt: '#3f4a5e', shirtDark: '#2e3648',
           skin: '#a89a90', mask: PAL.crowMask, hat: '#2b2b30',
+        });
+      } else if (o.type === 'sniper') {
+        // long dark duster + wide hat, unmistakable at a distance
+        figure(ctx, o, {
+          pants: '#23262e', shirt: '#2e2a33', shirtDark: '#211e26',
+          vest: '#3c3644', skin: '#a89a90', mask: PAL.crowMask,
+          hat: '#1d1c22', hatBand: '#7c2f2c',
         });
       } else {
         figure(ctx, o, {
