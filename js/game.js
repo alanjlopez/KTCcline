@@ -28,6 +28,7 @@ window.KTC = window.KTC || {};
       this.decals = [];
       this.damageDir = 0; this.damageDirT = 0;
       this._heartT = 0;
+      this.boss = null; this._bossSpawned = false;
       KTC.Audio.setMuted(this.save.muted);
       this.applySettings();
 
@@ -191,6 +192,7 @@ window.KTC = window.KTC || {};
       for (const ex of this.extractionPoints) { ex.progress = 0; ex.holding = false; ex.glow = U.rand(0, 6); }
       this.extract = null;
       this.threat = 0; this._threatTier = 0;
+      this.boss = null; this._bossSpawned = false;
       this.showdown = { meter: 0, active: false, t: 0 };
       this.enemyScale = 1;
       this.damageFlash = 0; this.damageDirT = 0; this._heartT = 0; this._hitStop = 0;
@@ -504,6 +506,17 @@ window.KTC = window.KTC || {};
       if (p.hp <= 2 && !p.dead) { this._heartT -= dt; if (this._heartT <= 0) { this._heartT = 0.85; KTC.Audio.heartbeat(); } }
       else this._heartT = 0;
 
+      // a boss stalks the deepest ground — spawn it once when you reach a tier-3 zone
+      if (!this.boss && !this._bossSpawned && zone && zone.tier >= 3) {
+        const pt = this.spawner.spawnPoint(this) || { x: p.x + 320, y: p.y };
+        this.boss = new KTC.Enemy(pt.x, pt.y, 'boss', zone.tier);
+        this.enemies.push(this.boss);
+        this._bossSpawned = true;
+        this.ui.toast('THE UNDERTAKER STALKS THE BADLANDS');
+        this.particles.shake(7, 0.5);
+        KTC.Audio.bruteRoar();
+      }
+
       // showdown: trigger with Q or right-click, then slow the crows
       if (In.actPressed('showdown') || In.mouse.rclicked) this.tryShowdown();
       this.updateShowdown(dt);
@@ -652,6 +665,7 @@ window.KTC = window.KTC || {};
       if (this.state === 'raid' || this.state === 'paused') {
         this.renderExtractArrow(ctx, camLeft, camTop);
         this.renderMinimap(ctx);
+        if (this.boss && !this.boss.dead) this.renderBossBar(ctx);
         this.renderCrosshair(ctx);
       }
       if (this.state === 'menu' || this.state === 'extracted' || this.state === 'dead') {
@@ -849,6 +863,18 @@ window.KTC = window.KTC || {};
       ctx.font = 'bold 13px "Courier New", monospace';
       ctx.textAlign = 'center';
       ctx.fillText('EXTRACT', ax, ay - 16);
+      ctx.textAlign = 'left';
+    }
+
+    renderBossBar(ctx) {
+      const b = this.boss; if (!b || b.dead) return;
+      const w = Math.min(520, this.canvas.width * 0.5), h = 13;
+      const x = (this.canvas.width - w) / 2, y = 64;
+      ctx.fillStyle = '#e0483a'; ctx.font = 'bold 13px "Courier New", monospace'; ctx.textAlign = 'center';
+      ctx.fillText('T H E   U N D E R T A K E R', this.canvas.width / 2, y - 5);
+      ctx.fillStyle = '#2a1512'; ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = '#b5433a'; ctx.fillRect(x, y, w * U.clamp(b.hp / b.maxHp, 0, 1), h);
+      ctx.strokeStyle = '#e0a0a0'; ctx.lineWidth = 1; ctx.strokeRect(x, y, w, h);
       ctx.textAlign = 'left';
     }
 

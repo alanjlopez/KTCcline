@@ -21,6 +21,11 @@ window.KTC = window.KTC || {};
     gunman: { speed: 58, r: 6, hh: 18, keep: 190, charge: 3.0, recover: 1.5, ps: 260, pd: 1, gold: [2, 4] },
     sniper: { speed: 50, r: 6, hh: 18, keep: 340, charge: 5.0, lock: 0.8, recover: 2.0, ps: 900, pd: 1, gold: [3, 6] },
     brute:  { speed: 44, r: 9, hh: 24, dmg: 2, tele: 0.9, chargeSpeed: 250, chargeDur: 0.85, cd: 1.6, gold: [4, 8] },
+    // v2 archetypes
+    shielder: { speed: 50, r: 7, hh: 20, dmg: 1, windup: 0.5, reach: 22, cd: 1.0, turn: 1.7, gold: [3, 6] },  // frontal shield — must flank
+    bomber:   { speed: 98, r: 6, hh: 15, dmg: 2, fuse: 0.75, blast: 42, gold: [2, 4] },                       // kamikaze, explodes on death
+    coyote:   { speed: 132, r: 5, hh: 11, dmg: 1, windup: 0.24, reach: 15, cd: 0.6, gold: [1, 2] },           // fast beast, hunts in packs
+    boss:     { speed: 42, r: 14, hh: 34, dmg: 2, hp: 18, gold: [40, 60], mass: 4 },                          // the exception to one-shot
   };
 
   class Enemy {
@@ -47,15 +52,40 @@ window.KTC = window.KTC || {};
       this.chargeDir = 0;               // brute rush direction
       this.hitDone = false;             // brute: one hit per rush
       this.strafeDir = U.chance(0.5) ? 1 : -1;
+      this.facing = U.rand(0, U.TAU);   // shielder shield direction (turns slowly)
+      this._boomed = false;             // bomber detonation guard
+
+      // bosses are the one exception to one-shot kills
+      this.boss = type === 'boss';
+      if (this.boss) { this.maxHp = s.hp + (this.tier - 1) * 3; this.hp = this.maxHp; this.bossT = 2; this.r = s.r; }
+      if (type === 'bomber') this.state = 'chase';
+      if (type === 'coyote') this.state = 'chase';
+      if (type === 'shielder') this.state = 'chase';
+      if (this.boss) this.state = 'boss';
 
       // richer crows carry more; tier feeds loot, never durability
       this.goldDrop = U.randInt(s.gold[0], s.gold[1]) + Math.max(0, this.tier - 1);
-      this.valuableChance = { sniper: 0.15, brute: 0.18 }[type] || 0.05;
+      this.valuableChance = { sniper: 0.15, brute: 0.18, shielder: 0.1, boss: 1 }[type] || 0.05;
     }
 
-    // One bullet is always lethal.
+    // One bullet is lethal — except a shielder hit from the front (blocked) or
+    // a boss (real HP).
     hurt(dmg, angle, game, crit) {
       if (this.dead) return;
+      if (this.type === 'shielder' && angle != null) {
+        const fromDir = angle + Math.PI;   // direction the shot came from
+        if (Math.abs(U.angleDiff(this.facing, fromDir)) < 1.0) {
+          this.hurtT = 0.06;
+          game.particles.spark(this.x + Math.cos(this.facing) * 12, this.y - this.hh * 0.4 + Math.sin(this.facing) * 12, this.facing);
+          KTC.Audio.hit();
+          return;                          // blocked — flank it
+        }
+      }
+      if (this.boss) {
+        this.hp -= dmg; this.hurtT = 0.09; KTC.Audio.hit();
+        if (this.hp <= 0) this.die(game, angle, crit);
+        return;
+      }
       KTC.Audio.hit();
       this.die(game, angle, crit);
     }
@@ -63,14 +93,26 @@ window.KTC = window.KTC || {};
     die(game, angle, crit) {
       this.dead = true;
       const a = angle == null ? this.aim + Math.PI : angle;
+      // a bomber detonates when it dies (guard against the blast re-killing it)
+      if (this.type === 'bomber' && !this._boomed) { this._boomed = true; game.explode(this.x, this.y - this.hh * 0.4, this.s.blast, false); }
       game.particles.blood(this.x, this.y - this.hh * 0.4, a);
-      game.particles.burst(this.x, this.y - 6, 10, {
-        color: [S.PAL.blood, S.PAL.bloodDark], speedMin: 20, speedMax: 120,
+      game.particles.burst(this.x, this.y - 6, this.boss ? 26 : 10, {
+        color: [S.PAL.blood, S.PAL.bloodDark], speedMin: 20, speedMax: this.boss ? 200 : 120,
         lifeMin: 0.25, lifeMax: 0.6, size: 2, grav: 200,
       });
-      game.particles.shake(this.type === 'brute' ? 6 : 2.5, 0.18);
+      game.particles.shake(this.boss ? 11 : this.type === 'brute' ? 6 : 2.5, this.boss ? 0.6 : 0.18);
       KTC.Audio.enemyDie();
-      KTC.Loot.dropFromEnemy(game, this.x, this.y, this);
+      if (this.boss) {
+        // guaranteed rare trinket + a haul of materials
+        const rares = KTC.Trinkets.order.filter((id) => KTC.Trinkets.get(id).rarity === 'rare');
+        game.pickups.push(new KTC.Loot.Pickup(this.x, this.y - 8, 'trinket', 0, U.pick(rares)));
+        for (let i = 0; i < 4; i++) game.pickups.push(new KTC.Loot.Pickup(this.x + U.rand(-14, 14), this.y + U.rand(-8, 8), 'material', i < 2 ? 1 : 2, i < 2 ? 'relic' : 'iron'));
+        game.pickups.push(new KTC.Loot.Pickup(this.x, this.y - 8, 'valuable', U.randInt(120, 200), 'Boss Bounty'));
+        if (game.boss === this) game.boss = null;
+        game.ui.toast('The Undertaker falls — grab the spoils!');
+      } else {
+        KTC.Loot.dropFromEnemy(game, this.x, this.y, this);
+      }
       game.onEnemyKilled(this, !!crit);
     }
 
@@ -87,10 +129,13 @@ window.KTC = window.KTC || {};
       if (this.state !== 'charging') this.aim = U.angle(this.x, this.y, p.x, p.y);
 
       switch (this.type) {
-        case 'rusher': ({ mvx, mvy } = this.updateRusher(dt, game, p, d, canAct)); break;
+        case 'rusher': case 'coyote': ({ mvx, mvy } = this.updateRusher(dt, game, p, d, canAct)); break;
         case 'gunman': ({ mvx, mvy } = this.updateRanged(dt, game, p, d, canAct, false)); break;
         case 'sniper': ({ mvx, mvy } = this.updateRanged(dt, game, p, d, canAct, true)); break;
         case 'brute': ({ mvx, mvy, sp } = this.updateBrute(dt, game, p, d, canAct)); break;
+        case 'shielder': ({ mvx, mvy } = this.updateShielder(dt, game, p, d, canAct)); break;
+        case 'bomber': ({ mvx, mvy } = this.updateBomber(dt, game, p, d, canAct)); break;
+        case 'boss': ({ mvx, mvy } = this.updateBoss(dt, game, p, d, canAct)); break;
       }
 
       // separation so crows don't stack into one point
@@ -265,6 +310,63 @@ window.KTC = window.KTC || {};
       }
     }
 
+    // ---- shielder: turns its shield toward the player only slowly, so a quick
+    // strafe or dodge around it exposes the flank ----
+    updateShielder(dt, game, p, d, canAct) {
+      let mvx = 0, mvy = 0;
+      const want = U.angle(this.x, this.y, p.x, p.y);
+      this.facing += U.clamp(U.angleDiff(this.facing, want), -this.s.turn * dt, this.s.turn * dt);
+      if (this.state === 'wind') {
+        this.stateT -= dt; this.swing = 1 - this.stateT / this.s.windup;
+        if (this.stateT <= 0) {
+          if (!p.dead && !p.invuln() && U.dist(this.x, this.y, p.x, p.y) < this.s.reach + p.r + 5) p.hurt(this.s.dmg, game, this.x, this.y);
+          this.state = 'chase'; this.cdT = this.s.cd; this.swing = 0;
+        }
+      } else {
+        if (canAct) { mvx = Math.cos(this.facing); mvy = Math.sin(this.facing); }
+        if (canAct && d < this.s.reach && this.cdT <= 0) { this.state = 'wind'; this.stateT = this.s.windup; this.swing = 0; }
+      }
+      return { mvx, mvy };
+    }
+
+    // ---- bomber: sprints in, lights a fuse, detonates (also on death) ----
+    updateBomber(dt, game, p, d, canAct) {
+      let mvx = 0, mvy = 0;
+      if (this.state === 'fuse') {
+        this.stateT -= dt;
+        if (U.chance(dt * 22)) game.particles.spawn(this.x, this.y - this.hh, { vx: U.rand(-12, 12), vy: -34, life: 0.4, size: 2, color: '#e07a3a' });
+        if (this.stateT <= 0) this.die(game);
+        return { mvx, mvy };
+      }
+      if (canAct) { mvx = Math.cos(this.aim); mvy = Math.sin(this.aim); }
+      if (canAct && d < 42) { this.state = 'fuse'; this.stateT = this.s.fuse; KTC.Audio.bruteRoar(); }
+      return { mvx, mvy };
+    }
+
+    // ---- boss: keeps mid-range, alternates a shotgun sweep and summoning ----
+    updateBoss(dt, game, p, d, canAct) {
+      let mvx = 0, mvy = 0;
+      if (!canAct) return { mvx, mvy };
+      if (d > 260) { mvx = Math.cos(this.aim); mvy = Math.sin(this.aim); }
+      else if (d < 170) { mvx = -Math.cos(this.aim); mvy = -Math.sin(this.aim); }
+      else { mvx = Math.cos(this.aim + Math.PI / 2) * this.strafeDir; mvy = Math.sin(this.aim + Math.PI / 2) * this.strafeDir; if (U.chance(dt * 0.5)) this.strafeDir *= -1; }
+      this.bossT -= dt;
+      if (this.bossT <= 0) {
+        this.bossT = U.rand(2.0, 2.8);
+        const oy = this.y - this.hh * 0.4;
+        if (U.chance(0.55)) {
+          const base = U.angle(this.x, oy, p.x, p.y - p.hh * 0.4);
+          for (let k = -3; k <= 3; k++) game.projectiles.push(new KTC.Projectile(this.x, oy, base + k * 0.15, { speed: 300, damage: 1, team: 'enemy', range: 620, size: 3, color: '#e07a5f' }));
+          game.particles.spark(this.x, oy, base); KTC.Audio.shoot('shotgun');
+        } else {
+          for (let k = 0; k < 2; k++) game.enemies.push(new Enemy(this.x + U.rand(-30, 30), this.y + U.rand(-30, 30), 'rusher', this.tier));
+          game.particles.burst(this.x, oy, 14, { color: ['#7c2f2c', '#3a3025'], speedMin: 20, speedMax: 100, lifeMin: 0.3, lifeMax: 0.6, size: 2 });
+          KTC.Audio.bruteRoar();
+        }
+      }
+      return { mvx, mvy };
+    }
+
     resolveWorld(game) {
       let bumped = false;
       for (const s of game.level.solids) {
@@ -301,6 +403,15 @@ window.KTC = window.KTC || {};
         ctx.restore();
       }
 
+      // coyote uses its own beast sprite
+      if (this.type === 'coyote') {
+        ctx.save(); ctx.translate(this.x, this.y);
+        if (this.hurtT > 0) ctx.filter = 'brightness(2.2)';
+        S.coyote(ctx, { aim: this.aim, walk: this.walk });
+        ctx.restore();
+        return;
+      }
+
       ctx.save();
       ctx.translate(this.x, this.y);
       const flip = Math.cos(this.aim) < 0 ? -1 : 1;
@@ -308,19 +419,43 @@ window.KTC = window.KTC || {};
         if (this.state === 'tele') ctx.rotate(-0.14 * flip);       // lean back
         else if (this.state === 'charging') ctx.rotate(0.2 * flip); // lean in
       }
-      // white flash right before a rusher strike
-      if (this.type === 'rusher' && this.state === 'wind' && this.stateT < 0.16) {
-        ctx.filter = 'brightness(2.6)';
+      if (this.boss) ctx.scale(1.9, 1.9);
+      // bomber flashes red while its fuse burns
+      if (this.type === 'bomber' && this.state === 'fuse' && Math.floor(performance.now() / 80) % 2 === 0) {
+        ctx.filter = 'brightness(2.4) sepia(1) saturate(4) hue-rotate(-20deg)';
+      } else if (this.type === 'rusher' && this.state === 'wind' && this.stateT < 0.16) {
+        ctx.filter = 'brightness(2.6)';                            // pre-strike flash
       } else if (this.hurtT > 0) {
         ctx.filter = 'brightness(2.2) saturate(0.4)';
       }
       S.crow(ctx, {
-        type: this.type, aim: this.aim, walk: this.walk,
-        knife: this.type === 'rusher',
-        gun: this.type === 'gunman' ? 'revolver' : this.type === 'sniper' ? 'sniper' : undefined,
+        type: this.boss ? 'brute' : this.type === 'shielder' || this.type === 'bomber' ? 'rusher' : this.type,
+        aim: this.aim, walk: this.walk,
+        knife: this.type === 'rusher' || this.type === 'shielder',
+        gun: this.type === 'gunman' ? 'revolver' : this.type === 'sniper' ? 'sniper' : this.boss ? 'shotgun' : undefined,
         swing: this.swing * -0.9,
       });
+      // bomber's satchel charge
+      if (this.type === 'bomber') { S.px(ctx, -3, -6, 6, 6, '#2a2a2e'); S.px(ctx, -1, -8, 2, 2, this.state === 'fuse' ? '#ff6a3a' : '#8a8a3a'); }
       ctx.restore();
+
+      // shielder's plank shield, on its (slowly turning) facing side
+      if (this.type === 'shielder') {
+        ctx.save();
+        ctx.translate(this.x + Math.cos(this.facing) * 9, this.y - this.hh * 0.4 + Math.sin(this.facing) * 9);
+        ctx.rotate(this.facing + Math.PI / 2);
+        S.px(ctx, -7, -2, 14, 4, S.PAL.woodDark);
+        S.px(ctx, -7, -2, 14, 1.5, S.PAL.wood);
+        S.px(ctx, -1, -2, 2, 4, S.PAL.metal);
+        ctx.restore();
+      }
+
+      // boss health bar floats above
+      if (this.boss && !this.dead) {
+        const w = 44, top = this.y - this.hh * 1.9 - 6;
+        ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(this.x - w / 2 - 1, top - 1, w + 2, 5);
+        ctx.fillStyle = '#b5433a'; ctx.fillRect(this.x - w / 2, top, w * (this.hp / this.maxHp), 3);
+      }
     }
   }
 
@@ -373,6 +508,8 @@ window.KTC = window.KTC || {};
             const type = this.pickType(game, biome);
             const tier = (zone ? zone.tier : 0) + Math.floor(game.threat / 4) + 1;
             game.enemies.push(new Enemy(pt.x, pt.y, type, tier));
+            // coyotes run in packs
+            if (type === 'coyote') for (let k = 0; k < 2; k++) game.enemies.push(new Enemy(pt.x + U.rand(-40, 40), pt.y + U.rand(-40, 40), 'coyote', tier));
           }
         }
         // interval shortens as threat climbs and in denser biomes

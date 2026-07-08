@@ -192,6 +192,24 @@ window.KTC = window.KTC || {};
       }
     },
 
+    // a lean coyote — low four-legged beast that hunts in packs
+    coyote(ctx, o) {
+      shadow(ctx, 7, 0.3);
+      const flip = Math.cos(o.aim || 0) < 0 ? -1 : 1;
+      ctx.save(); ctx.scale(flip, 1);
+      const bob = Math.sin(o.walk || 0) * 1;
+      px(ctx, -7, -8 + bob, 12, 5, '#6a5236');
+      px(ctx, -7, -8 + bob, 12, 1.5, '#7a6244');
+      px(ctx, 4, -10 + bob, 5, 5, '#6a5236');
+      px(ctx, 8, -10 + bob, 2, 2, '#5a4530');       // snout
+      px(ctx, 4, -12 + bob, 1.5, 2, '#4a3a28');     // ear
+      px(ctx, 6, -9 + bob, 1, 1, '#e0b050');        // eye
+      px(ctx, -6, -3, 2, 4, '#4a3a28');
+      px(ctx, 3, -3, 2, 4, '#4a3a28');
+      px(ctx, -9, -7 + bob, 3, 2, '#5a4530');       // tail
+      ctx.restore();
+    },
+
     // ---- small ground debris (drawn onto the static background) ----
     tuft(ctx, x, y, c) {
       px(ctx, x, y, 1, 3, c); px(ctx, x + 1, y - 1, 1, 4, c);
