@@ -37,7 +37,7 @@ window.KTC = window.KTC || {};
       achievements: {},
       cosmetics: { equipped: 'hat_default', owned: { hat_default: true } },
       dailyBest: {},
-      settings: { volume: 0.35, shake: 1, colorblind: false, damageNumbers: true, difficulty: 'outlaw' },
+      settings: { volume: 0.35, music: true, shake: 1, colorblind: false, damageNumbers: true, difficulty: 'outlaw' },
       muted: false,
     };
   }

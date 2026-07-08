@@ -331,6 +331,16 @@ window.KTC = window.KTC || {};
         for (let x = -len / 2; x < len / 2; x += 8) px(ctx, x, -9, 1, 9, 'rgba(0,0,0,0.25)');
       }
     },
+    // a rolling tumbleweed (drawn centred; caller rotates it)
+    tumbleweed(ctx) {
+      ctx.strokeStyle = '#7a6a44'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let i = 0; i < 7; i++) { const a = i * (KTC.Util.TAU / 7); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(a) * 7, Math.sin(a) * 7); }
+      ctx.moveTo(6, -2); ctx.lineTo(-3, 5); ctx.moveTo(-6, -3); ctx.lineTo(4, 4);
+      ctx.stroke();
+      ctx.strokeStyle = '#8f7d54';
+      ctx.beginPath(); ctx.arc(0, 0, 6, 0, KTC.Util.TAU); ctx.stroke();
+    },
     // a lonely grave marker for Boot Hill
     grave(ctx) {
       shadow(ctx, 6, 0.3);

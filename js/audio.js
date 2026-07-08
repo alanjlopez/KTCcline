@@ -107,5 +107,85 @@ window.KTC = window.KTC || {};
     click() { this._env('square', 220, 0.03, 0.1, 180); },
   };
 
+  // ---- reactive music: layered, synthesized loops on a look-ahead scheduler ----
+  // A slow bass/pad bed always plays; percussion and a lead fade in with the
+  // raid's `intensity` (threat). Boss mode swaps in a darker, tenser bed. All
+  // routed through a music gain under the master, so global mute/volume apply.
+  const Music = {
+    playing: false, mode: 'menu', intensity: 0, vol: 0.5, muted: false,
+    gain: null, tempo: 104, step: 0, nextT: 0, timer: null, lookahead: 0.12,
+
+    _ensure() {
+      if (!Audio.ctx) return false;
+      if (!this.gain) { this.gain = Audio.ctx.createGain(); this.gain.gain.value = this.muted ? 0 : this.vol; this.gain.connect(Audio.master); }
+      return true;
+    },
+    start(mode) {
+      if (mode) this.mode = mode;
+      if (!this._ensure() || this.playing) return;
+      this.playing = true; this.step = 0;
+      this.nextT = Audio.ctx.currentTime + 0.1;
+      this.timer = setInterval(() => this._sched(), 25);
+    },
+    stop() { this.playing = false; if (this.timer) { clearInterval(this.timer); this.timer = null; } },
+    setMode(m) { this.mode = m; },
+    setIntensity(x) { this.intensity = Math.max(0, Math.min(1, x)); },
+    setVolume(v) { this.vol = v; if (this.gain) this.gain.gain.value = this.muted ? 0 : v; },
+    setMuted(m) { this.muted = m; if (this.gain) this.gain.gain.value = m ? 0 : this.vol; },
+
+    _note(type, freq, t, dur, vol, glideTo) {
+      const c = Audio.ctx; if (!c) return;
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = type; o.frequency.setValueAtTime(freq, t);
+      if (glideTo) o.frequency.exponentialRampToValueAtTime(Math.max(20, glideTo), t + dur);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(Math.max(0.0002, vol), t + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(this.gain); o.start(t); o.stop(t + dur + 0.03);
+    },
+    _hat(t, vol) {
+      const c = Audio.ctx; if (!c) return;
+      const n = Math.floor(c.sampleRate * 0.03), buf = c.createBuffer(1, n, c.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+      const src = c.createBufferSource(); src.buffer = buf;
+      const g = c.createGain(); g.gain.value = vol;
+      const f = c.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 6500;
+      src.connect(f); f.connect(g); g.connect(this.gain); src.start(t);
+    },
+    _sched() {
+      const c = Audio.ctx; if (!c || !this.playing) return;
+      if (c.state !== 'running') { this.nextT = c.currentTime + 0.1; return; }
+      const stepDur = 60 / this.tempo / 4;   // sixteenth notes
+      while (this.nextT < c.currentTime + this.lookahead) {
+        this._step(this.step, this.nextT, stepDur);
+        this.nextT += stepDur; this.step = (this.step + 1) % 32;
+      }
+    },
+    _step(s, t, dur) {
+      const boss = this.mode === 'boss';
+      const calm = this.mode === 'base' || this.mode === 'menu';
+      // a wandering minor progression, one root per bar (8 sixteenths)
+      const prog = boss ? [43.65, 46.25, 55.00, 51.91] : calm ? [65.41, 49.00, 73.42, 55.00] : [55.00, 65.41, 49.00, 73.42];
+      const root = prog[Math.floor(s / 8) % 4];
+      if (s % 4 === 0) this._note('triangle', root, t, dur * 3.6, 0.5, root);      // bassline
+      if (s % 8 === 0) this._note('sine', root * 2, t, dur * 7, 0.16);            // pad
+      if (boss && s % 8 === 4) this._note('sawtooth', root * 1.5, t, dur * 3, 0.16, root * 1.4);
+      if (!calm) {
+        const it = this.intensity;
+        if (it > 0.12 && s % 4 === 0) this._note('sine', 58, t, 0.13, 0.55 * it, 30);   // kick
+        if (it > 0.38 && s % 2 === 1) this._hat(t, 0.05 * it);                          // hat
+        if (it > 0.62 && s % 8 === 6) this._note('square', root * 4, t, dur * 1.4, 0.11 * it, root * 4);  // lead
+      }
+    },
+    // one-shot musical stings that duck under nothing (they ride the music bus)
+    sting(name) {
+      if (!this._ensure() || !Audio.ctx || Audio.ctx.state !== 'running') return;
+      const t = Audio.ctx.currentTime;
+      if (name === 'extract') [523.25, 659.25, 783.99, 1046.5, 1318.5].forEach((f, i) => this._note('triangle', f, t + i * 0.09, 0.24, 0.32));
+      else if (name === 'boss') [110, 116.5, 174.6].forEach((f, i) => this._note('sawtooth', f, t + i * 0.12, 0.5, 0.28));
+    },
+  };
+  Audio.Music = Music;
+
   KTC.Audio = Audio;
 })(window.KTC);

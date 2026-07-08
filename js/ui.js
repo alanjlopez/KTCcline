@@ -439,6 +439,7 @@ window.KTC = window.KTC || {};
         el('h2', { class: 'screen-title', text: 'SETTINGS' }),
         el('div', { class: 'set-list' }, [
           stepRow('Volume', (d) => { st.volume = U.clamp(+(st.volume + d * 0.1).toFixed(2), 0, 1); }, () => Math.round(st.volume * 100) + '%'),
+          toggleRow('Music', 'music'),
           stepRow('Screen shake', (d) => { st.shake = U.clamp(+(st.shake + d * 0.5).toFixed(1), 0, 2); }, () => st.shake.toFixed(1)),
           stepRow('Difficulty', (d) => { let i = diffs.indexOf(st.difficulty); st.difficulty = diffs[(i + d + 3) % 3]; }, () => KTC.Tune.difficulty[st.difficulty].name),
           toggleRow('Colorblind palette', 'colorblind'),

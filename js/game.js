@@ -30,6 +30,8 @@ window.KTC = window.KTC || {};
       this._heartT = 0;
       this.boss = null; this._bossSpawned = false;
       this.throwables = []; this.fireZones = []; this.traps = []; this.tempSolids = [];
+      this._lights = [];        // transient light flashes (explosions) for the lighting pass
+      this.weather = []; this.tumbleweeds = []; this._wthT = 0;
       KTC.Audio.setMuted(this.save.muted);
       this.applySettings();
 
@@ -82,12 +84,19 @@ window.KTC = window.KTC || {};
       this.state = s;
       this.ui.onState(s);
       In.clear();
+      // reactive music follows the state; intensity is driven live in update()
+      const M = KTC.Audio.Music;
+      if (s === 'menu') { M.setMode('menu'); M.start('menu'); }
+      else if (s === 'base') { M.setMode('base'); M.start('base'); }
+      else if (s === 'raid') { M.setMode('raid'); M.start('raid'); }
     }
 
     // mirror saved settings into the live systems
     applySettings() {
       const st = this.save.settings || {};
       KTC.Audio.setVolume(st.volume == null ? 0.35 : st.volume);
+      KTC.Audio.Music.setVolume(0.5);
+      KTC.Audio.Music.setMuted(st.music === false);
       KTC.Particles.shakeMul = st.shake == null ? 1 : st.shake;
       document.documentElement.classList.toggle('colorblind', !!st.colorblind);
       if (st.keys) Object.assign(KTC.Input.binds, st.keys);
@@ -295,6 +304,9 @@ window.KTC = window.KTC || {};
         }
       }
       this.traps = this.traps.filter((tr) => tr.armed);
+      // transient explosion lights fade out
+      for (const L of this._lights) L.t -= dt;
+      this._lights = this._lights.filter((L) => L.t > 0);
       // temporary cover expires
       for (const c of this.tempSolids) c.t -= dt;
       for (const c of this.tempSolids.filter((c) => c.t <= 0)) { const i = this.level.solids.indexOf(c.solid); if (i >= 0) this.level.solids.splice(i, 1); }
@@ -391,6 +403,7 @@ window.KTC = window.KTC || {};
       this.particles.shake(5, 0.22);
       this.hitStop(KTC.Tune.feel.hitStopBoss);
       this.addDecal(x, y, 'scorch');
+      this._lights.push({ x, y, r: radius * 3.4, s: 1, t: 0.3, life: 0.3 });   // lights up the night
       KTC.Audio.explosion();
       for (const e of this.enemies) {
         if (e.dead) continue;
@@ -678,6 +691,7 @@ window.KTC = window.KTC || {};
       this.checkAch();
       this.raidsCleared++;
       KTC.Audio.extractDone();
+      KTC.Audio.Music.sting('extract');
       this.setState('extracted');
     }
 
@@ -751,6 +765,14 @@ window.KTC = window.KTC || {};
       const tier = Math.floor(this.threat / KTC.Tune.threat.milestone);
       if (tier > this._threatTier) { this._threatTier = tier; this.ui.toast('The crows are closing in…'); this.particles.shake(3, 0.3); }
 
+      // reactive music: intensity rides the threat curve (and a live bounty),
+      // and the bed darkens into the boss theme while the Undertaker is up
+      const M = KTC.Audio.Music;
+      let inten = Math.min(1, this.threat / 12);
+      if (this.hunter && !this.hunter.dead) inten = Math.max(inten, 0.72);
+      M.setIntensity(inten);
+      M.setMode(this.boss && !this.boss.dead ? 'boss' : 'raid');
+
       // named landmarks — a banner the first time you set foot in one
       if (this.level.pois && this.level.pois.length) {
         let inPoi = null;
@@ -784,6 +806,7 @@ window.KTC = window.KTC || {};
         this.ui.toast('THE UNDERTAKER STALKS THE BADLANDS');
         this.particles.shake(7, 0.5);
         KTC.Audio.bruteRoar();
+        KTC.Audio.Music.sting('boss');
       }
 
       // showdown: trigger with Q or right-click, then slow the crows
@@ -806,6 +829,7 @@ window.KTC = window.KTC || {};
       if (this._fullToastT > 0) this._fullToastT -= dt;
       this.particles.update(dt);
       this.updateItems(dt);
+      this.updateWeather(dt);
       this.updateExtract(dt);
 
       // reap dead
@@ -907,6 +931,7 @@ window.KTC = window.KTC || {};
       for (const c of this.level.containers) draw.push(c);
       for (const pk of this.pickups) draw.push(pk);
       for (const e of this.enemies) draw.push(e);
+      for (const tw of this.tumbleweeds) draw.push({ y: tw.y, render: (c) => this.renderTumbleweed(c, tw) });
       const showP = this.player && !this.player.dead && (this.state === 'raid' || this.state === 'paused' || this.state === 'base');
       if (showP) draw.push(this.player);
       for (const ex of this.extractionPoints) draw.push({ y: ex.y, render: (c) => this.renderExtract(c, ex) });
@@ -932,7 +957,9 @@ window.KTC = window.KTC || {};
 
       // ---- screen-space overlays ----
       ctx.setTransform(1, 0, 0, 1, 0, 0);
+      if (this.state === 'raid' || this.state === 'paused') this.renderWeather(ctx);
       this.renderPostFX(ctx);
+      this.renderLighting(ctx, camLeft, camTop, sx, sy);
       if (this.state === 'raid' || this.state === 'paused') {
         this.renderExtractArrow(ctx, camLeft, camTop);
         this.renderMinimap(ctx);
@@ -1126,6 +1153,104 @@ window.KTC = window.KTC || {};
         ctx.textAlign = 'left';
         ctx.globalAlpha = 1;
       }
+    }
+
+    // ---- lighting: at Night / Blood Moon a darkness sheet is punched by light
+    // holes around the player lantern, muzzle flashes, fires and explosions ----
+    renderLighting(ctx, camLeft, camTop, sx, sy) {
+      const ev = this.event;
+      if (!ev || !ev.dark || (this.state !== 'raid' && this.state !== 'paused')) return;
+      const w = this.canvas.width, h = this.canvas.height;
+      let lc = this._lightCanvas;
+      if (!lc) lc = this._lightCanvas = document.createElement('canvas');
+      if (lc.width !== w || lc.height !== h) { lc.width = w; lc.height = h; }
+      const lx = lc.getContext('2d');
+      lx.clearRect(0, 0, w, h);
+      lx.fillStyle = `rgba(6,8,20,${0.5 + ev.dark * 0.55})`;   // night → deep, blood moon → dusk
+      lx.fillRect(0, 0, w, h);
+      lx.globalCompositeOperation = 'destination-out';
+      const toX = (wx) => (wx - camLeft + sx) * ZOOM, toY = (wy) => (wy - camTop + sy) * ZOOM;
+      const hole = (wx, wy, r, strength) => {
+        const px = toX(wx), py = toY(wy), rr = r * ZOOM;
+        if (!isFinite(px) || !isFinite(py) || !(rr > 0)) return;   // never crash the frame on a bad transform
+        const gr = lx.createRadialGradient(px, py, 0, px, py, rr);
+        gr.addColorStop(0, `rgba(0,0,0,${strength})`);
+        gr.addColorStop(0.7, `rgba(0,0,0,${strength * 0.4})`);
+        gr.addColorStop(1, 'rgba(0,0,0,0)');
+        lx.fillStyle = gr; lx.fillRect(px - rr, py - rr, rr * 2, rr * 2);
+      };
+      const p = this.player;
+      if (p && !p.dead) {
+        hole(p.x, p.y - 8, 150, 0.92);                                          // lantern
+        if (p.flashT > 0) hole(p.x + Math.cos(p.aim) * 16, p.y - 11 + Math.sin(p.aim) * 16, 240, 1);   // muzzle flash
+      }
+      for (const f of this.fireZones) hole(f.x, f.y, f.r * 2.1 * (0.85 + Math.random() * 0.2), 0.85);   // flicker
+      for (const L of this._lights) hole(L.x, L.y, L.r * (0.8 + Math.random() * 0.25), Math.min(1, L.t / 0.18));
+      lx.globalCompositeOperation = 'source-over';
+      ctx.drawImage(lc, 0, 0);
+    }
+
+    // ---- weather: per-biome/event ambient layer (rain / drifting dust / sand)
+    // plus the odd tumbleweed. Screen-space motes; tumbleweeds live in the world.
+    updateWeather(dt) {
+      const p = this.player; if (!p) return;
+      const zone = this.level.zoneAt(p.x, p.y);
+      const biome = zone ? zone.biome : 'ghost';
+      const ev = this.event;
+      let type = 'dust', dens = 0.32, wind = 34;
+      if (ev && ev.fog) { type = 'sand'; dens = 1; wind = 150; }
+      else if (biome === 'wood') { type = 'rain'; dens = 0.75; wind = 20; }
+      else if (biome === 'badlands') { type = 'dust'; dens = 0.55; wind = 60; }
+      else if (biome === 'flats') { type = 'dust'; dens = 0.5; wind = 55; }
+      this._weatherType = type;
+      const W = this.canvas.width, H = this.canvas.height;
+      const target = Math.round(dens * 150);
+      // top up the mote pool
+      while (this.weather.length < target) {
+        this.weather.push(type === 'rain'
+          ? { x: Math.random() * (W + 200) - 100, y: Math.random() * H, vx: wind, vy: 620, len: 8 + Math.random() * 8 }
+          : { x: Math.random() * (W + 200) - 100, y: Math.random() * H, vx: wind * (0.6 + Math.random()), vy: (Math.random() - 0.5) * 14, len: 1.5 + Math.random() * 2 });
+      }
+      if (this.weather.length > target) this.weather.length = target;
+      const gust = 1 + 0.4 * Math.sin(performance.now() / 1700);
+      for (const m of this.weather) {
+        m.x += m.vx * gust * dt; m.y += m.vy * dt;
+        if (m.y > H + 10) { m.y = -10; m.x = Math.random() * (W + 200) - 100; }
+        if (m.x > W + 100) m.x = -100; else if (m.x < -100) m.x = W + 100;
+      }
+      // tumbleweeds roll through dusty/sandy country
+      this._wthT -= dt;
+      if (this._wthT <= 0 && (type === 'dust' || type === 'sand')) {
+        this._wthT = U.rand(4, 10) / (dens + 0.4);
+        const dir = wind >= 0 ? 1 : -1;
+        this.tumbleweeds.push({ x: p.x - dir * 520 + U.rand(-60, 60), y: p.y + U.rand(-300, 300), vx: dir * U.rand(90, 150), spin: 0 });
+      }
+      for (const tw of this.tumbleweeds) {
+        tw.x += tw.vx * gust * dt; tw.y += Math.sin(performance.now() / 300 + tw.x * 0.02) * 8 * dt; tw.spin += tw.vx * dt * 0.05;
+      }
+      this.tumbleweeds = this.tumbleweeds.filter((tw) => Math.abs(tw.x - p.x) < 900);
+    }
+
+    renderWeather(ctx) {
+      if (!this.weather.length) return;
+      const rain = this._weatherType === 'rain';
+      ctx.save();
+      if (rain) {
+        ctx.strokeStyle = 'rgba(150,170,200,0.35)'; ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (const m of this.weather) { ctx.moveTo(m.x, m.y); ctx.lineTo(m.x - m.vx * 0.012, m.y - m.len); }
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = this._weatherType === 'sand' ? 'rgba(201,168,110,0.5)' : 'rgba(180,165,135,0.3)';
+        for (const m of this.weather) ctx.fillRect(m.x, m.y, m.len, m.len);
+      }
+      ctx.restore();
+    }
+
+    renderTumbleweed(ctx, tw) {
+      ctx.save(); ctx.translate(tw.x, tw.y); ctx.rotate(tw.spin);
+      KTC.Sprites.tumbleweed(ctx);
+      ctx.restore();
     }
 
     renderExtractArrow(ctx, camLeft, camTop) {
