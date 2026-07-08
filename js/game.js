@@ -164,6 +164,12 @@ window.KTC = window.KTC || {};
     startRun(seed) {
       KTC.Audio.unlock();
       this.diff = KTC.Tune.difficulty[this.save.settings.difficulty] || KTC.Tune.difficulty.outlaw;
+      // roll this run's zone event from a stream derived from the seed, so daily
+      // runs reproduce the same weather/modifier without disturbing world gen
+      const erng = seed == null ? Math.random : U.makeRNG(((seed >>> 0) ^ 0x5bd1e995) >>> 0);
+      this.event = KTC.Events.roll(erng);
+      this.lootMul = this.event.lootMul || 1;
+      this.wanted = 0; this.hunter = null;
       this.level.generateWorld(seed);
       // trinkets you brought from the base (your insured loadout)
       this.trinkets = (this.save.loadout || []).filter((id) => KTC.Trinkets.get(id) && this.save.trinkets[id]);
@@ -213,6 +219,7 @@ window.KTC = window.KTC || {};
       this.baseMenu = null;
       this.emit('raidstart');
       this.setState('raid');
+      if (this.event && this.event.banner) this.ui.toast('⚝ ' + this.event.banner);
       if (!this.save.tutorialSeen) { this.save.tutorialSeen = true; KTC.Save.save(this.save); this.ui.toast('Loot with E · reach a stagecoach to extract · Q for showdown'); }
     }
 
@@ -328,6 +335,18 @@ window.KTC = window.KTC || {};
       KTC.Audio.pickup();
     }
 
+    // a rival gunslinger rides in to collect the bounty on your head
+    spawnHunter() {
+      const pt = this.spawner.spawnPoint(this) || { x: this.player.x + 360, y: this.player.y };
+      const tier = 1 + Math.floor(this.threat / 5);
+      const h = new KTC.Enemy(pt.x, pt.y, 'hunter', tier);
+      this.enemies.push(h);
+      this.hunter = h;
+      this.ui.toast('⚑ A BOUNTY HUNTER IS ON YOUR TRAIL');
+      this.particles.shake(5, 0.4);
+      KTC.Audio.bruteRoar();
+    }
+
     // a vault key — carried this run only, lost on death like the rest of your haul
     addKey(x, y) {
       this.run.keys = (this.run.keys || 0) + 1;
@@ -356,7 +375,7 @@ window.KTC = window.KTC || {};
       }
     }
 
-    gainGold(v) { if (this.run) this.run.gold += Math.max(0, Math.round(v * this.mods.goldMult * this.diff.rewardMul)); }
+    gainGold(v) { if (this.run) this.run.gold += Math.max(0, Math.round(v * this.mods.goldMult * this.diff.rewardMul * (this.lootMul || 1))); }
     healPlayer(n) {
       const p = this.player;
       if (p && !p.dead && p.hp < p.maxHp) {
@@ -536,7 +555,7 @@ window.KTC = window.KTC || {};
 
     // gold is a weightless counter, carried loose in your pockets
     addGold(value, x, y) {
-      const v = Math.max(0, Math.round(value * this.mods.goldMult * this.diff.rewardMul));
+      const v = Math.max(0, Math.round(value * this.mods.goldMult * this.diff.rewardMul * (this.lootMul || 1)));
       this.run.gold += v;
       this.particles.text(x, y - 10, '+' + v, '#e3c06a', { life: 0.7, size: 6 });
       this.emit('loot', { kind: 'gold', value: v });
@@ -603,6 +622,7 @@ window.KTC = window.KTC || {};
         }
         return false;
       }
+      value = Math.round(value * (this.lootMul || 1));
       r.satchel.push({ name, value });
       this.particles.text(x, y - 16, name, '#8ecfd4', { life: 1.1, size: 6 });
       this.particles.text(x, y - 8, '+' + value, '#e3c06a', { life: 0.9, size: 7 });
@@ -727,7 +747,7 @@ window.KTC = window.KTC || {};
       // you linger and the farther you push, the more crows pour in
       const zone = this.level.zoneAt(p.x, p.y);
       const zt = zone ? KTC.Zones.biome(zone.biome).threat : 0.3;
-      this.threat += dt * (KTC.Tune.threat.base + zt * KTC.Tune.threat.zoneMul) * this.diff.threatMul;
+      this.threat += dt * (KTC.Tune.threat.base + zt * KTC.Tune.threat.zoneMul) * this.diff.threatMul * (this.event.threatMul || 1);
       const tier = Math.floor(this.threat / KTC.Tune.threat.milestone);
       if (tier > this._threatTier) { this._threatTier = tier; this.ui.toast('The crows are closing in…'); this.particles.shake(3, 0.3); }
 
@@ -744,8 +764,19 @@ window.KTC = window.KTC || {};
       if (p.hp <= 2 && !p.dead) { this._heartT -= dt; if (this._heartT <= 0) { this._heartT = 0.85; KTC.Audio.heartbeat(); } }
       else this._heartT = 0;
 
-      // a boss stalks the deepest ground — spawn it once when you reach a tier-3 zone
-      if (!this.boss && !this._bossSpawned && zone && zone.tier >= 3) {
+      // bounty: carrying loot and lingering makes you WANTED — a rival hunter
+      // eventually rides in. Only one at a time; killing it lets pressure rebuild.
+      if (this.hunter && this.hunter.dead) this.hunter = null;
+      if (!this.hunter) {
+        const rate = (0.012 + this.runValue() * 0.00004 + this.threat * 0.003) * (this.event.wantedMul || 1) * this.diff.threatMul;
+        this.wanted = Math.min(1, this.wanted + dt * rate);
+        if (this.wanted >= 1) { this.spawnHunter(); this.wanted = 0; }
+      }
+
+      // a boss stalks the deepest ground — spawn it once you reach a deep zone
+      // (a Blood Moon wakes it a tier early)
+      const bossTier = this.event.bossTier || 3;
+      if (!this.boss && !this._bossSpawned && zone && zone.tier >= bossTier) {
         const pt = this.spawner.spawnPoint(this) || { x: p.x + 320, y: p.y };
         this.boss = new KTC.Enemy(pt.x, pt.y, 'boss', zone.tier);
         this.enemies.push(this.boss);
@@ -906,6 +937,7 @@ window.KTC = window.KTC || {};
         this.renderExtractArrow(ctx, camLeft, camTop);
         this.renderMinimap(ctx);
         if (this.boss && !this.boss.dead) this.renderBossBar(ctx);
+        if (this.hunter && !this.hunter.dead) this.renderHunterBar(ctx);
         this.renderCrosshair(ctx);
       }
       if (this.state === 'menu' || this.state === 'extracted' || this.state === 'dead') {
@@ -1035,6 +1067,20 @@ window.KTC = window.KTC || {};
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, w, h);
 
+      // zone-event atmosphere: night/blood-moon darkness, sandstorm dust, tint
+      const ev = this.event;
+      if (ev && this.state === 'raid') {
+        if (ev.dark) { ctx.fillStyle = `rgba(8,10,22,${ev.dark})`; ctx.fillRect(0, 0, w, h); }
+        if (ev.tint) { ctx.fillStyle = `rgba(${ev.tint[0]},${ev.tint[1]},${ev.tint[2]},0.12)`; ctx.fillRect(0, 0, w, h); }
+        if (ev.fog) {
+          ctx.fillStyle = `rgba(201,161,90,${0.12 * ev.fog})`; ctx.fillRect(0, 0, w, h);
+          const fg = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.16, w / 2, h / 2, Math.max(w, h) * 0.62);
+          fg.addColorStop(0, 'rgba(201,161,90,0)');
+          fg.addColorStop(1, `rgba(176,146,86,${0.55 * ev.fog})`);
+          ctx.fillStyle = fg; ctx.fillRect(0, 0, w, h);
+        }
+      }
+
       // low-hp danger vignette
       if (this.player && this.state === 'raid' && this.player.hp <= 2 && !this.player.dead) {
         const pulse = 0.18 + 0.12 * Math.sin(performance.now() / 200);
@@ -1121,6 +1167,18 @@ window.KTC = window.KTC || {};
       ctx.fillStyle = '#2a1512'; ctx.fillRect(x, y, w, h);
       ctx.fillStyle = '#b5433a'; ctx.fillRect(x, y, w * U.clamp(b.hp / b.maxHp, 0, 1), h);
       ctx.strokeStyle = '#e0a0a0'; ctx.lineWidth = 1; ctx.strokeRect(x, y, w, h);
+      ctx.textAlign = 'left';
+    }
+
+    renderHunterBar(ctx) {
+      const b = this.hunter; if (!b || b.dead) return;
+      const w = Math.min(360, this.canvas.width * 0.36), h = 11;
+      const x = (this.canvas.width - w) / 2, y = this.boss && !this.boss.dead ? 92 : 64;
+      ctx.fillStyle = '#c9a2ff'; ctx.font = 'bold 12px "Courier New", monospace'; ctx.textAlign = 'center';
+      ctx.fillText('⚑ BOUNTY HUNTER', this.canvas.width / 2, y - 4);
+      ctx.fillStyle = '#241a2e'; ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = '#9a6ad1'; ctx.fillRect(x, y, w * U.clamp(b.hp / b.maxHp, 0, 1), h);
+      ctx.strokeStyle = '#c9a2ff'; ctx.lineWidth = 1; ctx.strokeRect(x, y, w, h);
       ctx.textAlign = 'left';
     }
 

@@ -29,9 +29,10 @@ window.KTC = window.KTC || {};
     bomber:   { name: 'Bomber', desc: 'Sprints in and detonates on contact; also explodes when shot.' },
     coyote:   { name: 'Coyote', desc: 'A fast beast that hunts in packs of three.' },
     boss:     { name: 'The Undertaker', desc: 'A hulking boss that summons crows and sweeps buckshot. Drops a guaranteed rare.' },
+    hunter:   { name: 'Bounty Hunter', desc: 'A rival gunslinger with real HP who strafes, dodges and fires aimed shots. Rides in as the bounty on you climbs; drops premium spoils.' },
   };
 
-  const ENEMY_ORDER = ['rusher', 'gunman', 'sniper', 'brute', 'shielder', 'bomber', 'coyote', 'boss'];
+  const ENEMY_ORDER = ['rusher', 'gunman', 'sniper', 'brute', 'shielder', 'bomber', 'coyote', 'boss', 'hunter'];
 
   KTC.Meta = {
     ACHIEVEMENTS, COSMETICS, ENEMY_INFO, ENEMY_ORDER,

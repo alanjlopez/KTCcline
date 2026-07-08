@@ -26,6 +26,7 @@ window.KTC = window.KTC || {};
     bomber:   { speed: 98, r: 6, hh: 15, dmg: 2, fuse: 0.75, blast: 42, gold: [2, 4] },                       // kamikaze, explodes on death
     coyote:   { speed: 132, r: 5, hh: 11, dmg: 1, windup: 0.24, reach: 15, cd: 0.6, gold: [1, 2] },           // fast beast, hunts in packs
     boss:     { speed: 42, r: 14, hh: 34, dmg: 2, hp: 18, gold: [40, 60], mass: 4 },                          // the exception to one-shot
+    hunter:   { speed: 96, r: 6, hh: 19, keep: 205, range: 480, fireCd: 1.0, ps: 430, pd: 1, hp: 7, gold: [30, 50], mass: 1 }, // rival gunslinger (real HP)
   };
 
   class Enemy {
@@ -59,13 +60,17 @@ window.KTC = window.KTC || {};
       // further in the status pass. Trinkets/attacks apply these via applyStatus.
       this.status = { burn: 0, stun: 0, mark: 0 };
       this._burnTick = 0;
+      this.dodgeT = 0; this.dodgeDir = 0; this.reactT = U.rand(0.6, 1.6);   // hunter dodge state
 
-      // bosses are the one exception to one-shot kills
+      // bosses & the rival hunter are the exceptions to one-shot kills
       this.boss = type === 'boss';
+      this.rival = type === 'hunter';
       if (this.boss) { this.maxHp = s.hp + (this.tier - 1) * 3; this.hp = this.maxHp; this.bossT = 2; this.r = s.r; }
+      if (this.rival) { this.maxHp = s.hp + Math.max(0, this.tier - 1) * 2; this.hp = this.maxHp; }
       if (type === 'bomber') this.state = 'chase';
       if (type === 'coyote') this.state = 'chase';
       if (type === 'shielder') this.state = 'chase';
+      if (type === 'hunter') this.state = 'move';
       if (this.boss) this.state = 'boss';
 
       // richer crows carry more; tier feeds loot, never durability
@@ -86,7 +91,7 @@ window.KTC = window.KTC || {};
           return;                          // blocked — flank it
         }
       }
-      if (this.boss) {
+      if (this.boss || this.rival) {
         this.hp -= dmg; this.hurtT = 0.09; KTC.Audio.hit();
         if (this.hp <= 0) this.die(game, angle, crit);
         return;
@@ -117,6 +122,17 @@ window.KTC = window.KTC || {};
         game.pickups.push(new KTC.Loot.Pickup(this.x, this.y - 8, 'valuable', U.randInt(120, 200), 'Boss Bounty'));
         if (game.boss === this) game.boss = null;
         game.ui.toast('The Undertaker falls — grab the spoils!');
+      } else if (this.rival) {
+        // premium bounty: a rare trinket, a fat purse, gold, a vault key, maybe an iron
+        const rares = KTC.Trinkets.order.filter((id) => KTC.Trinkets.get(id).rarity === 'rare');
+        const pool = rares.filter((id) => !new Set(game.trinkets).has(id));
+        game.pickups.push(new KTC.Loot.Pickup(this.x, this.y - 8, 'trinket', 0, U.pick(pool.length ? pool : rares)));
+        game.pickups.push(new KTC.Loot.Pickup(this.x, this.y - 8, 'valuable', U.randInt(100, 170), 'Bounty Purse'));
+        for (let i = 0; i < 3; i++) game.pickups.push(new KTC.Loot.Pickup(this.x + U.rand(-12, 12), this.y + U.rand(-8, 8), 'gold', U.randInt(12, 22)));
+        game.pickups.push(new KTC.Loot.Pickup(this.x, this.y - 8, 'key', 0));
+        if (U.chance(0.4)) game.pickups.push(new KTC.Loot.Pickup(this.x, this.y - 8, 'weapon', 0, KTC.Weapons.rollFind()));
+        if (game.hunter === this) game.hunter = null;
+        game.ui.toast('Bounty hunter down — collect the spoils!');
       } else {
         KTC.Loot.dropFromEnemy(game, this.x, this.y, this);
       }
@@ -162,7 +178,7 @@ window.KTC = window.KTC || {};
       this.tickStatus(dt, game);
 
       // fire that outlasts its victim: a burned-out crow drops and spreads
-      if (this._burnedOut && !this.dead && !this.boss) { this.die(game, null, false); return; }
+      if (this._burnedOut && !this.dead && !this.boss && !this.rival) { this.die(game, null, false); return; }
 
       const p = game.player;
       const d = U.dist(this.x, this.y, p.x, p.y);
@@ -184,6 +200,7 @@ window.KTC = window.KTC || {};
         case 'shielder': ({ mvx, mvy } = this.updateShielder(dt, game, p, d, canAct)); break;
         case 'bomber': ({ mvx, mvy } = this.updateBomber(dt, game, p, d, canAct)); break;
         case 'boss': ({ mvx, mvy } = this.updateBoss(dt, game, p, d, canAct)); break;
+        case 'hunter': ({ mvx, mvy, sp } = this.updateHunter(dt, game, p, d, canAct)); break;
       }
 
       // separation so crows don't stack into one point
@@ -415,6 +432,56 @@ window.KTC = window.KTC || {};
       return { mvx, mvy };
     }
 
+    // ---- bounty hunter: a rival gunslinger. Keeps mid-range, strafes, dodges,
+    // and fires telegraphed aimed shots — a real duel with actual HP ----
+    updateHunter(dt, game, p, d, canAct) {
+      const s = this.s;
+      let mvx = 0, mvy = 0, sp = s.speed;
+
+      // mid-dodge: a quick lateral hop out of the line of fire
+      if (this.dodgeT > 0) {
+        this.dodgeT -= dt;
+        return { mvx: Math.cos(this.dodgeDir), mvy: Math.sin(this.dodgeDir), sp: s.speed * 1.7 };
+      }
+      // decide to dodge now and then when the player is bearing down
+      this.reactT -= dt;
+      if (canAct && this.reactT <= 0 && d < 300 && U.chance(dt * 1.4)) {
+        this.reactT = U.rand(1.0, 1.8);
+        this.dodgeT = 0.26;
+        this.dodgeDir = this.aim + Math.PI / 2 * (U.chance(0.5) ? 1 : -1);
+        KTC.Audio.dodge();
+      }
+
+      // hold a comfortable distance, strafing when in the pocket
+      if (canAct) {
+        if (d > s.keep + 60) { mvx = Math.cos(this.aim); mvy = Math.sin(this.aim); }
+        else if (d < s.keep - 40) { mvx = -Math.cos(this.aim); mvy = -Math.sin(this.aim); }
+        else { mvx = Math.cos(this.aim + Math.PI / 2) * this.strafeDir; mvy = Math.sin(this.aim + Math.PI / 2) * this.strafeDir; if (U.chance(dt * 0.6)) this.strafeDir *= -1; }
+      }
+
+      // quick-draw: a short telegraph, then an aimed shot
+      this.cdT -= dt;
+      if (this.state === 'aim') {
+        this.stateT -= dt;
+        this.lineX = p.x; this.lineY = p.y - p.hh * 0.4;
+        mvx *= 0.25; mvy *= 0.25;                       // steadies to fire
+        if (this.stateT <= 0) { this.hunterFire(game, p); this.state = 'move'; this.cdT = s.fireCd; }
+      } else if (canAct && this.cdT <= 0 && d < s.range) {
+        this.state = 'aim'; this.stateT = 0.4;
+      }
+      return { mvx, mvy, sp };
+    }
+
+    hunterFire(game, p) {
+      const s = this.s;
+      const oy = this.y - this.hh * 0.4;
+      const a = U.angle(this.x, oy, p.x, p.y - p.hh * 0.4);
+      const mx = this.x + Math.cos(a) * 12, my = oy + Math.sin(a) * 12;
+      game.projectiles.push(new KTC.Projectile(mx, my, a, { speed: s.ps, damage: s.pd, size: 3, team: 'enemy', range: 540, color: '#c9a2ff' }));
+      game.particles.spark(mx, my, a);
+      KTC.Audio.shoot('revolver');
+    }
+
     resolveWorld(game) {
       let bumped = false;
       for (const s of game.level.solids) {
@@ -457,6 +524,32 @@ window.KTC = window.KTC || {};
         if (this.hurtT > 0) ctx.filter = 'brightness(2.2)';
         S.coyote(ctx, { aim: this.aim, walk: this.walk });
         ctx.restore();
+        return;
+      }
+
+      // bounty hunter: a rival gunslinger drawn from the player rig, but in a
+      // dark duster so you read it as "the other outlaw"
+      if (this.rival) {
+        if (this.state === 'aim') {
+          const oy = this.y - this.hh * 0.4;
+          ctx.save();
+          ctx.globalAlpha = 0.25 + 0.45 * (1 - this.stateT / 0.4);
+          ctx.strokeStyle = '#c9a2ff'; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(this.x + Math.cos(this.aim) * 12, oy + Math.sin(this.aim) * 12); ctx.lineTo(this.lineX, this.lineY); ctx.stroke();
+          ctx.restore();
+        }
+        ctx.save(); ctx.translate(this.x, this.y);
+        if (this.hurtT > 0) ctx.filter = 'brightness(2.0)';
+        else ctx.filter = 'brightness(0.7) sepia(0.5) saturate(1.5) hue-rotate(-8deg)';
+        S.player(ctx, { aim: this.aim, walk: this.walk, gun: 'revolver', hat: 'hat_default' });
+        ctx.restore();
+        S.px(ctx, this.x - 1, this.y - this.hh - 3, 2, 2, '#c9a2ff');   // rival marker
+        if (this.status.stun > 0) {
+          const cy = this.y - this.hh - 4, t = performance.now() / 200;
+          ctx.fillStyle = '#f2e79a';
+          for (let k = 0; k < 3; k++) { const a = t + k * (U.TAU / 3); ctx.globalAlpha = 0.55 + 0.35 * Math.sin(a * 2); ctx.beginPath(); ctx.arc(this.x + Math.cos(a) * 7, cy + Math.sin(a) * 2.4, 1.4, 0, U.TAU); ctx.fill(); }
+          ctx.globalAlpha = 1;
+        }
         return;
       }
 
@@ -548,7 +641,8 @@ window.KTC = window.KTC || {};
 
     maxAlive(game) {
       const T = KTC.Tune.spawn;
-      const base = (T.capBase + Math.floor(game.threat * T.capPerThreat) + game.raidsCleared) * (game.diff ? game.diff.spawnMul : 1);
+      const evMul = game.event ? (game.event.spawnMul || 1) : 1;
+      const base = (T.capBase + Math.floor(game.threat * T.capPerThreat) + game.raidsCleared) * (game.diff ? game.diff.spawnMul : 1) * evMul;
       return Math.min(Math.round(base), T.capMax) + (this.frenzy ? 8 : 0);
     }
 
@@ -570,6 +664,13 @@ window.KTC = window.KTC || {};
     pickType(game, biome) {
       if (this.frenzy && Math.random() < 0.6) return Math.random() < 0.75 ? 'rusher' : 'gunman';
       let type = KTC.Zones.rollEnemy(biome);
+      // zone events nudge the crow mix (sandstorm → melee, night → snipers, …)
+      const bias = game.event && game.event.spawnBias;
+      if (bias && Math.random() < 0.5) {
+        let total = 0; for (const k in bias) total += bias[k];
+        let r = Math.random() * total;
+        for (const k in bias) { r -= bias[k]; if (r <= 0) { type = k; break; } }
+      }
       if (type === 'sniper' && game.enemies.filter((e) => e.type === 'sniper' && !e.dead).length >= 2) type = 'gunman';
       return type;
     }

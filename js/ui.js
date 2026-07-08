@@ -77,6 +77,7 @@ window.KTC = window.KTC || {};
         el('div', { class: 'threat-label', text: 'THREAT' }),
         el('div', { class: 'threat-bar' }, [this.threatFill]),
       ]);
+      this.eventEl = el('div', { class: 'hud-event hidden' });
       this.timerEl = el('div', { class: 'hud-timer', text: '00:00' });
       this.lootEl = el('div', { class: 'hud-loot', html: '<span class="coin">◉</span> 0' });
       this.matsEl = el('div', { class: 'hud-mats' });
@@ -95,7 +96,7 @@ window.KTC = window.KTC || {};
       // all run-only HUD in one wrapper so the base HUD/toast can stay visible
       this.runHud = el('div', { class: 'run-hud hidden' }, [
         wpanel, this.trinketRow, this.setsRow,
-        el('div', { class: 'hud-top-center' }, [this.killsEl, this.comboEl, this.threatWrap]),
+        el('div', { class: 'hud-top-center' }, [this.killsEl, this.comboEl, this.threatWrap, this.eventEl]),
         el('div', { class: 'hud-top-right' }, [this.timerEl, this.lootEl, this.matsEl]),
         this.heartsEl, this.itemEl, this.showdownEl, this.extractEl, this.satchelPanel,
       ]);
@@ -596,6 +597,15 @@ window.KTC = window.KTC || {};
       } else this.itemEl.classList.add('hidden');
 
       this.killsEl.textContent = r.kills;
+      // active zone event + "WANTED" pressure cue
+      const ev = g.event;
+      let evText = '';
+      if (ev && ev.id !== 'clear') evText = '⚝ ' + ev.name;
+      if (g.hunter && !g.hunter.dead) evText = (evText ? evText + '  ·  ' : '') + '⚑ WANTED';
+      else if (g.wanted > 0.6) evText = (evText ? evText + '  ·  ' : '') + 'WANTED ▮'.padEnd(6 + Math.round(g.wanted * 3), '▮');
+      this.eventEl.textContent = evText;
+      this.eventEl.classList.toggle('hidden', !evText);
+      this.eventEl.classList.toggle('wanted', !!(g.hunter && !g.hunter.dead));
       this.timerEl.textContent = U.formatTime(r.time);
       this.lootEl.innerHTML = `<span class="coin">◉</span> ${r.gold} <span class="val">✦ ${r.satchel.length}/${r.cap}</span>` + (r.keys > 0 ? ` <span class="keys">🔑 ${r.keys}</span>` : '');
       this.matsEl.innerHTML = this.matHtml(r.materials, true);

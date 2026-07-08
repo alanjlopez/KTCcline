@@ -235,6 +235,14 @@ span.rar-common, span.rar-uncommon, span.rar-rare { border: 0; box-shadow: none;
 .set-showdown { border-color: #d1a63a; box-shadow: 0 0 6px rgba(209,166,58,0.45); }
 .set-gold { border-color: #cba24a; box-shadow: 0 0 6px rgba(203,162,74,0.45); }
 
+/* active zone-event + WANTED cue, under the threat bar */
+.hud-event {
+  margin-top: 4px; font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
+  color: #d9c9a0; text-shadow: 0 1px 2px #000; text-align: center;
+}
+.hud-event.wanted { color: #c9a2ff; animation: wantedpulse .8s ease-in-out infinite; }
+@keyframes wantedpulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+
 /* showdown meter (bottom-centre) */
 .showdown-meter {
   position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%);
