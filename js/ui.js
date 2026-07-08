@@ -147,6 +147,7 @@ window.KTC = window.KTC || {};
         ]),
         el('div', { class: 'menu-buttons' }, [
           this.bigBtn('PLAY', () => { KTC.Audio.click(); g.enterBase(); }),
+          this.btn('RECORDS', () => { KTC.Audio.click(); this.openRecords(); }),
           this.btn('SETTINGS', () => { KTC.Audio.click(); this.openSettings(false); }),
           this.btn(g.save.muted ? 'SOUND: OFF' : 'SOUND: ON', (b) => {
             g.save.muted = !g.save.muted; KTC.Audio.setMuted(g.save.muted);
@@ -204,8 +205,10 @@ window.KTC = window.KTC || {};
         ]),
         el('div', { class: 'menu-buttons row' }, [
           this.bigBtn('DEPLOY', () => { KTC.Audio.click(); g.startRun(); }),
+          this.btn('DAILY RUN', () => { KTC.Audio.click(); g.startRun(KTC.Meta.dailySeed()); }),
           this.btn('CLOSE', () => { KTC.Audio.click(); g.closeBench(); }),
         ]),
+        el('div', { class: 'hint', html: `Daily Run seeds the world from today (${KTC.Meta.dailyCode()}) — same map for everyone. Best: <span class="coin">◉</span> ${g.save.dailyBest[KTC.Meta.dailyCode()] || 0}` }),
         el('div', { class: 'hint', text: 'Your equipped iron & trinkets are insured. Loot, materials, and items found in the field are lost if you die.' }),
       ]);
     }
@@ -442,6 +445,56 @@ window.KTC = window.KTC || {};
         el('div', { class: 'menu-buttons' }, [
           this.bigBtn('BACK', () => { KTC.Audio.click(); this._rebind = null; if (fromPause) g.setState('paused'); else g.setState('menu'); }),
         ]),
+      ]);
+    }
+
+    // ---------------- records (bestiary / achievements / cosmetics) ----------------
+    openRecords() { this.root.querySelectorAll('.screen').forEach((n) => n.remove()); this.renderRecords(); }
+    renderRecords() {
+      const g = this.game, s = g.save;
+      const rows = [];
+
+      rows.push(el('div', { class: 'section-label', text: 'ACHIEVEMENTS' }));
+      for (const id of KTC.Meta.achOrder) {
+        const a = KTC.Meta.ACHIEVEMENTS[id]; const got = !!s.achievements[id];
+        rows.push(el('div', { class: 'shop-row' + (got ? '' : ' locked') }, [
+          el('div', { class: 'shop-info' }, [
+            el('div', { class: 'shop-name', html: (got ? '★ ' : '☆ ') + a.name }),
+            el('div', { class: 'shop-desc', text: got ? a.desc : '???' }),
+          ]),
+          el('span', { class: 'tag' + (got ? ' equipped' : ''), text: got ? 'DONE' : 'LOCKED' }),
+        ]));
+      }
+
+      rows.push(el('div', { class: 'section-label', text: 'HATS — pick your look' }));
+      const hats = el('div', { class: 'loadout' }, Object.keys(KTC.Meta.COSMETICS).map((id) => {
+        const owned = !!(s.cosmetics.owned && s.cosmetics.owned[id]);
+        const sel = s.cosmetics.equipped === id;
+        return el('button', {
+          class: 'weap-chip' + (sel ? ' sel' : '') + (owned ? '' : ' locked'),
+          onclick: () => { if (!owned) return this.toast('Locked — earn it via achievements.'); KTC.Audio.click(); s.cosmetics.equipped = id; KTC.Save.save(s); this.openRecords(); },
+        }, [el('span', { text: owned ? KTC.Meta.COSMETICS[id].name : '🔒 ' + KTC.Meta.COSMETICS[id].name })]);
+      }));
+      rows.push(hats);
+
+      const trOwn = KTC.Trinkets.order.filter((id) => s.trinkets[id]).length;
+      const wpOwn = KTC.Weapons.order.filter((id) => s.weapons[id]).length;
+      rows.push(el('div', { class: 'section-label', text: `BESTIARY · trinkets ${trOwn}/${KTC.Trinkets.order.length} · irons ${wpOwn}/${KTC.Weapons.order.length}` }));
+      for (const id of KTC.Meta.ENEMY_ORDER) {
+        const seen = !!s.discovered.enemies[id]; const info = KTC.Meta.ENEMY_INFO[id];
+        rows.push(el('div', { class: 'shop-row' + (seen ? '' : ' locked') }, [
+          el('div', { class: 'shop-info' }, [
+            el('div', { class: 'shop-name', text: seen ? info.name : '??? — undiscovered' }),
+            el('div', { class: 'shop-desc', text: seen ? info.desc : 'Encounter it in the field.' }),
+          ]),
+        ]));
+      }
+
+      this.screen('shop', [
+        el('h2', { class: 'screen-title', text: 'RECORDS' }),
+        el('div', { class: 'stat-row', html: `Extractions <b>${s.stats.extractions}</b> · Deaths <b>${s.stats.deaths}</b> · Kills <b>${s.stats.kills}</b> · Best haul <b>${s.stats.bestLoot}</b>` }),
+        el('div', { class: 'shop-list' }, rows),
+        el('div', { class: 'menu-buttons' }, [this.bigBtn('BACK', () => { KTC.Audio.click(); g.setState('menu'); })]),
       ]);
     }
 

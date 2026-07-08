@@ -59,6 +59,7 @@ window.KTC = window.KTC || {};
       this.item = null;             // equipped active item id
       this.itemCharges = 0;
       this.maxItemCharges = 2;
+      this.hat = 'hat_default';     // cosmetic
     }
 
     applyStats(st) {
@@ -305,7 +306,7 @@ window.KTC = window.KTC || {};
       const rec = this.aim; // recoil handled by pushing arm slightly (kept simple)
       S.player(ctx, {
         aim: this.aim, walk: this.walk,
-        gun: this.weapon().sprite,
+        gun: this.weapon().sprite, hat: this.hat,
       });
       // muzzle flash
       if (this.flashT > 0) {

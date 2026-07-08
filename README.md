@@ -42,9 +42,13 @@ Your stash, upgrades, and owned weapons are saved in the browser (localStorage).
 | Reload | **R** (also auto-reloads when empty) |
 | Dodge roll | **Space** (i-frames + short cooldown) |
 | Loot | **hold E** next to a crate / barrel / wagon / well / cache |
+| Active item | **F** (medkit / dynamite / molotov / barricade / trap) |
 | Showdown | **Q** or **right-click** when the meter is full |
 | Satchel | **hold Tab** to see what you're carrying |
 | Pause | **Esc** |
+
+Keys are rebindable in **Settings** (movement stays WASD/arrows), and there's
+basic **gamepad** support (left stick move, right stick aim, RT shoot).
 
 ## Read the tells
 
@@ -53,14 +57,38 @@ Every crow dies to a single bullet — but so can you, if you ignore the wind-up
 - **Rusher** — sprints at you and raises the knife for a beat (watch for the
   flash) before the strike.
 - **Gunman** — stops dead and charges for **~3 seconds**: his aim line glows
-  brighter until he fires a single slow bullet. Dodge it, or shoot him first —
-  stillness is his weakness.
-- **Sniper** — lurks at the edge of the fight behind a thin red laser. He charges
-  for **~5 seconds**; for the final stretch the laser **locks in place and
-  blinks** — that's your window to step out of the line before the near-instant
-  shot. Hunt him early or keep moving.
-- **Brute** — leans back, kicks up dust for a second, then shoulder-charges in a
-  straight line for two hearts. Sidestep and he'll eat a wall.
+  brighter until he fires a single slow bullet. Stillness is his weakness.
+- **Sniper** — lurks behind a thin red laser, charging for **~5 seconds**; for the
+  final beat the laser **locks and blinks** — step out of the line before the shot.
+- **Brute** — leans back, kicks up dust, then shoulder-charges in a straight line
+  for two hearts. Sidestep and he'll eat a wall.
+- **Shielder** — carries a plank shield that blocks bullets from the front. It
+  turns to face you only slowly, so **strafe or dodge around and shoot the flank**.
+- **Bomber** — sprints in and detonates on contact; it also **explodes when shot**,
+  so don't kill it in your own lap.
+- **Coyote** — a fast beast that hunts in **packs of three**.
+- **The Undertaker** (boss) — stalks the Badlands with real HP (and a health bar),
+  summoning crows and sweeping buckshot. Downing it drops a **guaranteed rare**.
+
+## Active items, crafting & customization
+
+- **Active items** (bought at the gunsmith, one equipped, charges refill each raid,
+  used with **F**): Medkit, Dynamite, Molotov (burning ground), Barricade (temporary
+  cover), Bear Trap.
+- **Weapon attachments** — craft with materials at the gunsmith: Scope, Extended
+  Mag, Hollow Points, Ricochet Kit, Incendiary Rounds. They stack with trinket
+  effects.
+- **Relic Table** (workbench) — gamble surplus materials for a random new trinket.
+- **Difficulty** (Rookie / Outlaw / Legend), volume, screen-shake, colorblind
+  palette, and key rebinding live in **Settings**.
+
+## Daily runs & records
+
+- **Daily Run** (from the Map Table) seeds the whole world from today's date — the
+  same map for everyone — and tracks your best haul.
+- **Records** (title screen) is a bestiary of crows you've discovered, an
+  achievement list, and unlockable **hats** you earn (e.g. beat the Undertaker for
+  a top hat) and equip.
 
 ## Looting
 
@@ -147,9 +175,12 @@ js/
   input.js            keyboard + mouse
   sprites.js          palette + all procedural pixel art
   audio.js            WebAudio-synthesized sound effects
-  weapons.js          data-driven gun table (handling + projectile behaviors)
+  config.js           central tuning constants (KTC.Tune)
+  weapons.js          data-driven gun table (handling + behaviors + attachments)
   trinkets.js         roguelike passives: mods + event hooks + synergies
-  zones.js            biome definitions + procedural world layout + materials
+  items.js            active items / consumables (F slot)
+  zones.js            biome definitions + organic world layout + materials
+  meta.js             achievements, cosmetics, bestiary text, daily seed
   particles.js        particles, screen shake, floating text, lightning bolts
   projectile.js       tracer bullets + behaviors (pierce/bounce/explode/home/chain)
   loot.js             pickups, containers, caches, materials, hold-E channels

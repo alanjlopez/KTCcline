@@ -328,6 +328,8 @@ span.rar-common, span.rar-uncommon, span.rar-rare { border: 0; box-shadow: none;
   background: rgba(30,27,20,0.7); border: 1px solid var(--edge);
   border-radius: 6px; padding: 10px 14px; text-align: left;
 }
+.shop-row.locked { opacity: 0.5; }
+.weap-chip.locked { opacity: 0.5; }
 .shop-info { flex: 1; }
 .shop-name { font-size: 16px; color: #f0e6d0; letter-spacing: 1px; }
 .shop-desc { font-size: 12px; color: var(--ink-dim); margin-top: 2px; }

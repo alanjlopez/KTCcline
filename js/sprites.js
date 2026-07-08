@@ -130,8 +130,14 @@ window.KTC = window.KTC || {};
     // hat
     if (c.hat) {
       px(ctx, -5, hy + 0.5, 10, 1.6, c.hat);     // brim
-      px(ctx, -3, hy - 2.5, 6, 3, c.hat);         // crown
-      px(ctx, -3, hy - 0.6, 6, 0.8, c.hatBand || PAL.woodDark);
+      if (o.hat === 'hat_top') {
+        px(ctx, -3, hy - 5, 6, 5.5, c.hat);       // tall top-hat crown
+        px(ctx, -3, hy - 0.6, 6, 0.8, '#2a2118');
+      } else {
+        px(ctx, -3, hy - 2.5, 6, 3, c.hat);       // crown
+        px(ctx, -3, hy - 0.6, 6, 0.8, c.hatBand || PAL.woodDark);
+        if (o.hat === 'hat_star') px(ctx, -1, hy - 1.7, 2, 2, '#e3c06a');  // sheriff star
+      }
     }
 
     // front arm + gun

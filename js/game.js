@@ -129,6 +129,7 @@ window.KTC = window.KTC || {};
       this.recomputeMods();
       this.player = new KTC.Player(this.level.spawn.x, this.level.spawn.y);
       this.player.applyStats(KTC.Save.deriveStats(this.save));
+      this.player.hat = this.save.cosmetics.equipped;
       this.enemies.length = 0;
       this.projectiles.length = 0;
       this.pickups.length = 0;
@@ -159,10 +160,10 @@ window.KTC = window.KTC || {};
     }
 
     // ---------------- run lifecycle ----------------
-    startRun() {
+    startRun(seed) {
       KTC.Audio.unlock();
       this.diff = KTC.Tune.difficulty[this.save.settings.difficulty] || KTC.Tune.difficulty.outlaw;
-      this.level.generateWorld();
+      this.level.generateWorld(seed);
       // trinkets you brought from the base (your insured loadout)
       this.trinkets = (this.save.loadout || []).filter((id) => KTC.Trinkets.get(id) && this.save.trinkets[id]);
       this.recomputeMods();
@@ -171,6 +172,7 @@ window.KTC = window.KTC || {};
       stats.maxHp += this.mods.maxHpBonus;
       this.player = new KTC.Player(this.level.spawn.x, this.level.spawn.y);
       this.player.applyStats(stats);
+      this.player.hat = this.save.cosmetics.equipped;
       // equipped active item + fresh charges
       this.player.item = (this.save.activeEquipped && this.save.items[this.save.activeEquipped]) ? this.save.activeEquipped : null;
       this.player.maxItemCharges = KTC.Items.MAX_CHARGES;
@@ -193,6 +195,7 @@ window.KTC = window.KTC || {};
         foundTrinkets: [],              // trinkets/guns picked up THIS run
         foundWeapons: [],
         killsSinceHeal: 0,
+        seed: seed == null ? null : (seed >>> 0), daily: seed != null,
       };
       this.extractionPoints = this.level.extractionPoints;
       for (const ex of this.extractionPoints) { ex.progress = 0; ex.holding = false; ex.glow = U.rand(0, 6); }
@@ -372,9 +375,32 @@ window.KTC = window.KTC || {};
       }
     }
 
+    // ---------------- meta / progression ----------------
+    discover(kind, id) {
+      const d = this.save.discovered[kind];
+      if (d && !d[id]) { d[id] = true; KTC.Save.save(this.save); }
+    }
+    unlockAch(id) {
+      if (this.save.achievements[id]) return;
+      const a = KTC.Meta.ACHIEVEMENTS[id]; if (!a) return;
+      this.save.achievements[id] = true;
+      if (a.reward) this.save.cosmetics.owned[a.reward] = true;
+      KTC.Save.save(this.save);
+      this.ui.toast('★ ' + a.name + (a.reward ? ' — unlocked ' + KTC.Meta.COSMETICS[a.reward].name : ''));
+      KTC.Audio.trinket();
+    }
+    checkAch() {
+      const s = this.save;
+      if (s.stats.kills >= 100) this.unlockAch('centurion');
+      if (s.gold >= 500) this.unlockAch('tycoon');
+      if (Object.keys(s.trinkets).filter((k) => s.trinkets[k]).length >= 6) this.unlockAch('collector');
+    }
+
     // ---------------- combat callbacks ----------------
     onEnemyKilled(e, crit) {
       const r = this.run;
+      this.discover('enemies', e.type);
+      if (e.boss) this.unlockAch('first_boss');
       r.kills++;
       r.combo++;
       r.comboT = 3;
@@ -508,6 +534,7 @@ window.KTC = window.KTC || {};
       s.stats.raids++;
       s.stats.kills += this.run.kills;
       KTC.Save.save(s);
+      this.checkAch();
       this._deathT = 1.4;   // brief slow-mo before the screen
     }
 
@@ -521,11 +548,16 @@ window.KTC = window.KTC || {};
       s.stats.raids++;
       s.stats.kills += this.run.kills;
       s.stats.bestLoot = Math.max(s.stats.bestLoot, haul);
+      // meta: achievements + daily best
+      this.unlockAch('first_extract');
+      if (ex && ex.tier >= 3) this.unlockAch('deep_extract');
+      if (this.run.daily) { const c = KTC.Meta.dailyCode(); s.dailyBest[c] = Math.max(s.dailyBest[c] || 0, haul); }
       // materials, trinkets & guns found this run are kept only because you got out
       for (const k in this.run.materials) s.materials[k] = (s.materials[k] || 0) + this.run.materials[k];
       for (const id of this.run.foundTrinkets) s.trinkets[id] = true;
       for (const id of this.run.foundWeapons) s.weapons[id] = true;
       KTC.Save.save(s);
+      this.checkAch();
       this.raidsCleared++;
       KTC.Audio.extractDone();
       this.setState('extracted');
@@ -750,7 +782,7 @@ window.KTC = window.KTC || {};
         ctx.translate(this.player.x, this.player.y);
         ctx.rotate(Math.PI / 2);
         ctx.globalAlpha = 0.9;
-        S.player(ctx, { aim: 0, walk: 0, gun: this.player.weapon().sprite });
+        S.player(ctx, { aim: 0, walk: 0, gun: this.player.weapon().sprite, hat: this.player.hat });
         ctx.restore();
       }
 

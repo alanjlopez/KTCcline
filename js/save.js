@@ -33,6 +33,10 @@ window.KTC = window.KTC || {};
       attachments: {},              // per-weapon: { weaponId: { attachId: true } }
       upgrades: { maxHp: 0, ammo: 0, reload: 0, dodge: 0, speed: 0, satchel: 0, slots: 0 },
       stats: { extractions: 0, raids: 0, deaths: 0, bestLoot: 0, kills: 0 },
+      discovered: { enemies: {}, trinkets: {}, weapons: {} },
+      achievements: {},
+      cosmetics: { equipped: 'hat_default', owned: { hat_default: true } },
+      dailyBest: {},
       settings: { volume: 0.35, shake: 1, colorblind: false, damageNumbers: true, difficulty: 'outlaw' },
       muted: false,
     };
@@ -67,6 +71,10 @@ window.KTC = window.KTC || {};
       const materials = Object.assign({}, d.materials, data.materials || {});
       const benches = Object.assign({}, d.benches, data.benches || {});
       const attachments = Object.assign({}, data.attachments || {});
+      const discovered = Object.assign({ enemies: {}, trinkets: {}, weapons: {} }, data.discovered || {});
+      const achievements = Object.assign({}, data.achievements || {});
+      const cosmetics = Object.assign({ equipped: 'hat_default', owned: { hat_default: true } }, data.cosmetics || {});
+      const dailyBest = Object.assign({}, data.dailyBest || {});
       const settings = Object.assign({}, d.settings, data.settings || {});
       data = Object.assign(d, data);
       data.upgrades = upgrades;
@@ -78,6 +86,10 @@ window.KTC = window.KTC || {};
       data.materials = materials;
       data.benches = benches;
       data.attachments = attachments;
+      data.discovered = discovered;
+      data.achievements = achievements;
+      data.cosmetics = cosmetics;
+      data.dailyBest = dailyBest;
       data.settings = settings;
       this._mem = data;
       return data;
