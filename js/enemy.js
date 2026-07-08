@@ -55,6 +55,11 @@ window.KTC = window.KTC || {};
       this.facing = U.rand(0, U.TAU);   // shielder shield direction (turns slowly)
       this._boomed = false;             // bomber detonation guard
 
+      // status effects (timers, seconds). stun freezes AI; burn/mark are wired
+      // further in the status pass. Trinkets/attacks apply these via applyStatus.
+      this.status = { burn: 0, stun: 0, mark: 0 };
+      this._burnTick = 0;
+
       // bosses are the one exception to one-shot kills
       this.boss = type === 'boss';
       if (this.boss) { this.maxHp = s.hp + (this.tier - 1) * 3; this.hp = this.maxHp; this.bossT = 2; this.r = s.r; }
@@ -116,19 +121,39 @@ window.KTC = window.KTC || {};
       game.onEnemyKilled(this, !!crit);
     }
 
+    // start / refresh a status effect. Bosses shrug off stun.
+    applyStatus(kind, dur, data) {
+      if (this.dead) return;
+      if (kind === 'stun' && this.boss) return;
+      this.status[kind] = Math.max(this.status[kind] || 0, dur);
+      if (kind === 'mark' && data && data.by) this.status.markBy = data.by;
+    }
+
+    tickStatus(dt) {
+      const st = this.status;
+      if (st.stun > 0) st.stun -= dt;
+      if (st.mark > 0) st.mark -= dt;
+      if (st.burn > 0) st.burn -= dt;
+    }
+
     update(dt, game) {
       if (this.hurtT > 0) this.hurtT -= dt;
       if (this.cdT > 0) this.cdT -= dt;
+      this.tickStatus(dt);
 
       const p = game.player;
       const d = U.dist(this.x, this.y, p.x, p.y);
+      const stunned = this.status.stun > 0;
       const canAct = !p.dead;
       let mvx = 0, mvy = 0, sp = this.s.speed;
 
       // charging attackers stand and face their mark; everyone else re-aims
-      if (this.state !== 'charging') this.aim = U.angle(this.x, this.y, p.x, p.y);
+      if (this.state !== 'charging' && !stunned) this.aim = U.angle(this.x, this.y, p.x, p.y);
 
-      switch (this.type) {
+      // a staggered crow can't chase or attack — it just reels
+      if (stunned) {
+        if (U.chance(dt * 7)) game.particles.spawn(this.x + U.rand(-4, 4), this.y - this.hh * U.rand(0.5, 0.9), { vx: U.rand(-10, 10), vy: -22, life: 0.35, size: 1.6, color: '#dfe2ee' });
+      } else switch (this.type) {
         case 'rusher': case 'coyote': ({ mvx, mvy } = this.updateRusher(dt, game, p, d, canAct)); break;
         case 'gunman': ({ mvx, mvy } = this.updateRanged(dt, game, p, d, canAct, false)); break;
         case 'sniper': ({ mvx, mvy } = this.updateRanged(dt, game, p, d, canAct, true)); break;
@@ -455,6 +480,18 @@ window.KTC = window.KTC || {};
         const w = 44, top = this.y - this.hh * 1.9 - 6;
         ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(this.x - w / 2 - 1, top - 1, w + 2, 5);
         ctx.fillStyle = '#b5433a'; ctx.fillRect(this.x - w / 2, top, w * (this.hp / this.maxHp), 3);
+      }
+
+      // stagger: little stars circle the crow's head
+      if (this.status.stun > 0 && !this.dead) {
+        const cy = this.y - this.hh - 4, t = performance.now() / 200;
+        ctx.fillStyle = '#f2e79a';
+        for (let k = 0; k < 3; k++) {
+          const a = t + k * (U.TAU / 3);
+          ctx.globalAlpha = 0.55 + 0.35 * Math.sin(a * 2);
+          ctx.beginPath(); ctx.arc(this.x + Math.cos(a) * 7, cy + Math.sin(a) * 2.4, 1.4, 0, U.TAU); ctx.fill();
+        }
+        ctx.globalAlpha = 1;
       }
     }
   }

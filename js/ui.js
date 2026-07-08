@@ -81,6 +81,7 @@ window.KTC = window.KTC || {};
       this.heartsEl = el('div', { class: 'hud-hearts' });
       this.extractEl = el('div', { class: 'hud-extract hidden' });
       this.trinketRow = el('div', { class: 'trinket-row' });
+      this.setsRow = el('div', { class: 'sets-row' });
       this._trinketStamp = '';
       this.sdFill = el('div', { class: 'sd-fill' });
       this.sdLabel = el('div', { class: 'sd-label' });
@@ -91,7 +92,7 @@ window.KTC = window.KTC || {};
       this.itemEl = el('div', { class: 'hud-item hidden' });
       // all run-only HUD in one wrapper so the base HUD/toast can stay visible
       this.runHud = el('div', { class: 'run-hud hidden' }, [
-        wpanel, this.trinketRow,
+        wpanel, this.trinketRow, this.setsRow,
         el('div', { class: 'hud-top-center' }, [this.killsEl, this.comboEl, this.threatWrap]),
         el('div', { class: 'hud-top-right' }, [this.timerEl, this.lootEl, this.matsEl]),
         this.heartsEl, this.itemEl, this.showdownEl, this.extractEl, this.satchelPanel,
@@ -477,6 +478,17 @@ window.KTC = window.KTC || {};
       }));
       rows.push(hats);
 
+      // trinket set bonuses — how many of a tag you must carry to trigger each
+      rows.push(el('div', { class: 'section-label', text: 'SET BONUSES — carry trinkets that share a tag' }));
+      for (const set of KTC.Trinkets.sets) {
+        rows.push(el('div', { class: 'shop-row' }, [
+          el('div', { class: 'shop-info' }, [
+            el('div', { class: 'shop-name', text: set.icon + ' ' + set.name }),
+            el('div', { class: 'shop-desc', text: set.tiers.map((t) => t.n + '× → ' + t.desc).join('  ·  ') }),
+          ]),
+        ]));
+      }
+
       const trOwn = KTC.Trinkets.order.filter((id) => s.trinkets[id]).length;
       const wpOwn = KTC.Weapons.order.filter((id) => s.weapons[id]).length;
       rows.push(el('div', { class: 'section-label', text: `BESTIARY · trinkets ${trOwn}/${KTC.Trinkets.order.length} · irons ${wpOwn}/${KTC.Weapons.order.length}` }));
@@ -539,6 +551,16 @@ window.KTC = window.KTC || {};
           const chip = el('div', { class: 'trinket-chip rar-' + t.rarity, title: t.name + ' — ' + t.desc }, [el('span', { class: 'ti', text: t.icon })]);
           if (counts[id] > 1) chip.appendChild(el('span', { class: 'tx', text: '×' + counts[id] }));
           this.trinketRow.appendChild(chip);
+        }
+        // active set bonuses (derive from the same trinket loadout)
+        this.setsRow.innerHTML = '';
+        for (const s of (g.activeSets || [])) {
+          const tip = s.name + ' (' + s.count + ') — ' + s.tiers.map((t) => t.desc).join(' · ');
+          this.setsRow.appendChild(el('div', { class: 'set-chip set-' + s.id, title: tip }, [
+            el('span', { class: 'si', text: s.icon }),
+            el('span', { class: 'sn', text: s.name }),
+            el('span', { class: 'sc', text: '×' + s.count }),
+          ]));
         }
       }
 

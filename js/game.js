@@ -44,6 +44,7 @@ window.KTC = window.KTC || {};
 
       // roguelike state
       this.mods = KTC.Trinkets.defaultMods();
+      this.activeSets = [];             // trinket set bonuses currently in effect
       this.trinkets = [];               // trinket ids active this run
       this.enemyScale = 1;              // <1 slows crows during a showdown
       this.showdown = { meter: 0, active: false, t: 0 };
@@ -320,6 +321,8 @@ window.KTC = window.KTC || {};
       const wid = this.player ? this.player.weaponId : this.save.equipped;
       const atts = (this.save.attachments && this.save.attachments[wid]) || {};
       for (const id in atts) if (atts[id] && KTC.Weapons.ATTACH[id]) KTC.Weapons.ATTACH[id].mods(this.mods);
+      // trinket SET bonuses (tag thresholds) fold into the same mods last
+      this.activeSets = KTC.Trinkets.applySets(this.trinkets, this.mods);
     }
 
     // Fire an event to every active trinket's hook of that name.
@@ -373,6 +376,48 @@ window.KTC = window.KTC || {};
         KTC.Audio.zap();
         fromX = bx; fromY = by;
       }
+    }
+
+    // ---------------- trinket event-hook helpers ----------------
+    // Smoke Bomb: dodging staggers (stuns) nearby crows in a puff.
+    staggerNear(x, y, radius, dur) {
+      let n = 0;
+      for (const e of this.enemies) {
+        if (e.dead || e.boss) continue;
+        if (U.dist(x, y, e.x, e.y - e.hh * 0.4) < radius + e.r) {
+          e.applyStatus('stun', dur);
+          const a = U.angle(x, y, e.x, e.y);
+          e.x += Math.cos(a) * 8; e.y += Math.sin(a) * 8;
+          n++;
+        }
+      }
+      this.particles.spawn(x, y - 6, { vx: 0, vy: 0, life: 0.35, size: radius * 1.3, color: 'rgba(210,212,220,0.42)', drag: 1 });
+      this.particles.burst(x, y - 6, 16, { color: ['#e6e7ee', '#b8bac6', '#8f909c'], speedMin: 30, speedMax: 150, lifeMin: 0.3, lifeMax: 0.7, size: 3, grav: -12 });
+      if (n) KTC.Audio.dodge();
+    }
+
+    // Fan Mail: finishing a reload sprays a defensive ring of bullets.
+    burstRing(x, y, count) {
+      const m = this.mods;
+      const base = Math.random() * U.TAU;
+      for (let i = 0; i < count; i++) {
+        const a = base + (i / count) * U.TAU;
+        this.projectiles.push(new KTC.Projectile(x, y - 11, a, {
+          speed: 300, damage: 1, size: 3, team: 'player', range: 150,
+          pierce: m.pierce, crit: false, color: '#f6e2a0',
+        }));
+      }
+      this.particles.burst(x, y - 11, 10, { color: ['#ffe9a8', '#f0c060'], speedMin: 30, speedMax: 120, lifeMin: 0.15, lifeMax: 0.4, size: 2 });
+      KTC.Audio.shoot('shotgun');
+    }
+
+    // Magpie: a looted valuable occasionally duplicates into the satchel.
+    dupeValuable(name, value) {
+      const r = this.run;
+      if (!r || r.satchel.length >= r.cap) return;
+      r.satchel.push({ name, value });
+      this.particles.text(this.player.x, this.player.y - 28, '🐦 ' + name, '#c9a2ff', { life: 1.1, size: 6 });
+      KTC.Audio.pickup();
     }
 
     // ---------------- meta / progression ----------------
@@ -443,6 +488,7 @@ window.KTC = window.KTC || {};
       const v = Math.max(0, Math.round(value * this.mods.goldMult * this.diff.rewardMul));
       this.run.gold += v;
       this.particles.text(x, y - 10, '+' + v, '#e3c06a', { life: 0.7, size: 6 });
+      this.emit('loot', { kind: 'gold', value: v });
     }
 
     // ---------------- found items (roguelike pickups) ----------------
@@ -509,6 +555,7 @@ window.KTC = window.KTC || {};
       r.satchel.push({ name, value });
       this.particles.text(x, y - 16, name, '#8ecfd4', { life: 1.1, size: 6 });
       this.particles.text(x, y - 8, '+' + value, '#e3c06a', { life: 0.9, size: 7 });
+      this.emit('loot', { kind: 'valuable', name, value });
       return true;
     }
 

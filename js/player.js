@@ -55,6 +55,7 @@ window.KTC = window.KTC || {};
       this.footT = 0;
       this.recoil = 0;
       this.cheatUsed = false;       // Snake Oil: one save per raid
+      this.grudge = false;          // Grudge: next shot is a guaranteed explosive crit
       this.perfectBuffT = 0;        // active-reload speed buff
       this.item = null;             // equipped active item id
       this.itemCharges = 0;
@@ -115,6 +116,7 @@ window.KTC = window.KTC || {};
         this.rollCd = ROLL_DUR + this.dodgeCd * game.mods.dodgeCdMult;
         KTC.Audio.dodge();
         game.particles.dust(this.x, this.y, 6);
+        game.emit('dodge');
       }
 
       if (this.rollT > 0) {
@@ -191,6 +193,7 @@ window.KTC = window.KTC || {};
           this.ammo = mag;
           KTC.Audio.reloadDone();
           game.particles.text(this.x, this.y - this.hh - 6, 'RELOADED', '#cdbb9c', { life: 0.6, size: 6 });
+          game.emit('reload');
         }
       }
 
@@ -220,18 +223,20 @@ window.KTC = window.KTC || {};
       const w = this.weapon();
       const m = game.mods;
       const p = w.proj;
+      const grudge = this.grudge;   // Grudge: this shot is a guaranteed explosive crit
+      this.grudge = false;
       const mx = this.x + Math.cos(this.aim) * 16;
       const my = this.y - 11 + Math.sin(this.aim) * 16;
       const pellets = w.pellets + m.extraProjectiles;
       const spread = w.spread + m.spreadBonus;
       for (let i = 0; i < pellets; i++) {
         const a = this.aim + U.rand(-spread, spread);
-        const crit = Math.random() < m.critChance;
+        const crit = grudge || Math.random() < m.critChance;
         game.projectiles.push(new KTC.Projectile(mx, my, a, {
           speed: p.speed, damage: 1, size: p.size, team: 'player', range: p.range * m.rangeMul,
           pierce: (p.pierce || 0) + m.pierce,
           bounces: (p.bounces || 0) + m.bounces,
-          explosive: Math.max(p.explosive || 0, m.explosive),
+          explosive: Math.max(p.explosive || 0, m.explosive, grudge ? 30 : 0),
           homing: Math.max(p.homing || 0, m.homing),
           chain: (p.chain || 0) + m.chain,
           crit,
@@ -267,6 +272,7 @@ window.KTC = window.KTC || {};
       this.flashT = 0.1;
       this.lootStunT = 0.6;         // getting hit interrupts any loot channel
       game.onPlayerDamaged(dmg, sx, sy);
+      game.emit('hurt', { dmg });   // Grudge & friends react to taking a hit
       game.particles.shake(7, 0.3);
       KTC.Audio.playerHurt();
       if (this.hp <= 0) {
