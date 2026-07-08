@@ -313,6 +313,10 @@ window.KTC = window.KTC || {};
     // Fold active trinkets (loadout + found this raid) into the shared mods.
     recomputeMods() {
       this.mods = KTC.Trinkets.aggregate(this.trinkets);
+      // fold the equipped weapon's attachments into the same mods
+      const wid = this.player ? this.player.weaponId : this.save.equipped;
+      const atts = (this.save.attachments && this.save.attachments[wid]) || {};
+      for (const id in atts) if (atts[id] && KTC.Weapons.ATTACH[id]) KTC.Weapons.ATTACH[id].mods(this.mods);
     }
 
     // Fire an event to every active trinket's hook of that name.
@@ -437,6 +441,7 @@ window.KTC = window.KTC || {};
     equipFoundWeapon(id, x, y) {
       if (!KTC.Weapons.get(id)) return;
       this.player.setWeapon(id);
+      this.recomputeMods();   // the new weapon's attachments apply
       if (!this.run.foundWeapons.includes(id)) this.run.foundWeapons.push(id);
       this.particles.text(x, y - 18, KTC.Weapons.get(id).name, '#8ecfd4', { life: 1.4, size: 7 });
       KTC.Audio.trinket();

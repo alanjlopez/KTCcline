@@ -227,7 +227,7 @@ window.KTC = window.KTC || {};
         const a = this.aim + U.rand(-spread, spread);
         const crit = Math.random() < m.critChance;
         game.projectiles.push(new KTC.Projectile(mx, my, a, {
-          speed: p.speed, damage: 1, size: p.size, team: 'player', range: p.range,
+          speed: p.speed, damage: 1, size: p.size, team: 'player', range: p.range * m.rangeMul,
           pierce: (p.pierce || 0) + m.pierce,
           bounces: (p.bounces || 0) + m.bounces,
           explosive: Math.max(p.explosive || 0, m.explosive),

@@ -79,8 +79,20 @@ window.KTC = window.KTC || {};
   const ORDER = ['revolver', 'shotgun', 'rifle', 'repeater', 'bouncer', 'hex', 'tesla', 'buffalo', 'boomstick'];
   const FIND = ['shotgun', 'rifle', 'repeater', 'bouncer', 'hex', 'tesla', 'buffalo', 'boomstick'];
 
+  // Attachments, crafted with materials at the gunsmith, per weapon. Their
+  // effects fold into the same `mods` object as trinkets, so they stack.
+  const ATTACH = {
+    scope:      { name: 'Scope', icon: '◎', desc: 'Longer range, tighter spread.', cost: { scrap: 6, iron: 2 }, mods: (m) => { m.spreadBonus -= 0.02; m.rangeMul *= 1.3; } },
+    mag:        { name: 'Extended Mag', icon: '▮', desc: '+3 cylinder capacity.', cost: { scrap: 8, iron: 3 }, mods: (m) => { m.magBonus += 3; } },
+    hollow:     { name: 'Hollow Points', icon: '⦿', desc: 'Rounds pierce +1 crow.', cost: { scrap: 6, iron: 2 }, mods: (m) => { m.pierce += 1; } },
+    ricochet:   { name: 'Ricochet Kit', icon: '⟳', desc: 'Rounds ricochet +1.', cost: { scrap: 6, iron: 3 }, mods: (m) => { m.bounces += 1; } },
+    incendiary: { name: 'Incendiary Rounds', icon: '✷', desc: 'Shots burst on impact.', cost: { scrap: 6, iron: 2, relic: 1 }, mods: (m) => { m.explosive = Math.max(m.explosive, 16); } },
+  };
+  const ATTACH_ORDER = ['scope', 'mag', 'hollow', 'ricochet', 'incendiary'];
+
   KTC.Weapons = {
     defs: WEAPONS, order: ORDER, find: FIND, get: (id) => WEAPONS[id],
+    ATTACH, ATTACH_ORDER,
     rollFind: () => FIND[Math.floor(Math.random() * FIND.length)],
   };
 })(window.KTC);

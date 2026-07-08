@@ -12,7 +12,7 @@ window.KTC = window.KTC || {};
   // Every stat a trinket (or shop upgrade) can move. Player + firing read this.
   function defaultMods() {
     return {
-      fireRateMult: 1, reloadMult: 1, magBonus: 0, moveMult: 1, dodgeCdMult: 1,
+      fireRateMult: 1, reloadMult: 1, magBonus: 0, moveMult: 1, dodgeCdMult: 1, rangeMul: 1,
       extraProjectiles: 0, spreadBonus: 0,
       pierce: 0, bounces: 0, explosive: 0, homing: 0, chain: 0,
       critChance: 0, goldMult: 1, goldPerKill: 0,

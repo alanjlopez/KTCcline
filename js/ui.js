@@ -248,6 +248,25 @@ window.KTC = window.KTC || {};
           action,
         ]));
       }
+      // relic table — spend materials to craft a random trinket you don't own
+      rows.push(el('div', { class: 'section-label', text: 'RELIC TABLE — gamble materials for a trinket' }));
+      const craftCost = { scrap: 6, iron: 3, relic: 2 };
+      rows.push(el('div', { class: 'shop-row' }, [
+        el('div', { class: 'shop-info' }, [
+          el('div', { class: 'shop-name', text: 'Craft Random Trinket' }),
+          el('div', { class: 'shop-desc', text: 'Forge a random trinket you don\'t yet own.' }),
+        ]),
+        el('button', { class: 'btn buy', html: this.costHtml(craftCost), onclick: () => {
+          const unowned = KTC.Trinkets.order.filter((id) => !g.save.trinkets[id]);
+          if (!unowned.length) return this.toast('You already own every trinket!');
+          if (!this.canAfford(craftCost)) return this.denyMat();
+          this.spend(craftCost);
+          const id = KTC.Trinkets.roll(new Set(Object.keys(g.save.trinkets).filter((k) => g.save.trinkets[k])));
+          g.save.trinkets[id] = true; KTC.Save.save(g.save); KTC.Audio.trinket();
+          this.toast('Forged: ' + KTC.Trinkets.get(id).name + '!'); this.reBench();
+        } }),
+      ]));
+
       this.screen('shop', [
         el('h2', { class: 'screen-title', text: 'WORKBENCH' }),
         el('div', { class: 'gold-line', html: this.matHtml(g.save.materials) }),
@@ -275,6 +294,27 @@ window.KTC = window.KTC || {};
           ]), action,
         ]));
       }
+      // attachments for the currently equipped iron — crafted with materials
+      const wid = g.save.equipped;
+      rows.push(el('div', { class: 'section-label', text: `ATTACHMENTS — for your ${KTC.Weapons.get(wid).name} (materials)` }));
+      const owned = g.save.attachments[wid] || {};
+      for (const id of KTC.Weapons.ATTACH_ORDER) {
+        const a = KTC.Weapons.ATTACH[id];
+        const has = !!owned[id];
+        const action = has ? el('span', { class: 'tag equipped', text: 'INSTALLED' })
+          : el('button', { class: 'btn buy', html: this.costHtml(a.cost), onclick: () => {
+              if (!this.canAfford(a.cost)) return this.denyMat();
+              this.spend(a.cost); (g.save.attachments[wid] = g.save.attachments[wid] || {})[id] = true;
+              KTC.Save.save(g.save); KTC.Audio.craft(); this.reBench();
+            } });
+        rows.push(el('div', { class: 'shop-row' }, [
+          el('div', { class: 'shop-info' }, [
+            el('div', { class: 'shop-name', html: `<span class="ii">${a.icon}</span> ${a.name}` }),
+            el('div', { class: 'shop-desc', text: a.desc }),
+          ]), action,
+        ]));
+      }
+
       rows.push(el('div', { class: 'section-label', text: 'ACTIVE ITEMS — one equipped, used with F (gold)' }));
       for (const id of KTC.Items.order) {
         const it = KTC.Items.get(id);
