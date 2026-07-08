@@ -675,10 +675,10 @@ window.KTC = window.KTC || {};
       ctx.textAlign = 'left';
     }
 
-    // corner minimap: zones by biome, extraction markers, player, threat tint
+    // corner minimap: organic biome regions, roads, extractions, player, threat
     renderMinimap(ctx) {
       const L = this.level.zones;
-      if (!L) return;
+      if (!L || !L.cores) return;
       const size = 150, pad = 14;
       const mx = this.canvas.width - size - pad, my = pad + 40;
       const sc = size / Math.max(L.w, L.h);
@@ -687,9 +687,18 @@ window.KTC = window.KTC || {};
       ctx.fillStyle = 'rgba(14,12,9,0.8)';
       ctx.fillRect(mx - 4, my - 4, size + 8, size + 8);
       ctx.strokeStyle = '#4a4030'; ctx.lineWidth = 2; ctx.strokeRect(mx - 4, my - 4, size + 8, size + 8);
-      for (const cell of L.cells) {
-        ctx.fillStyle = KTC.Zones.biome(cell.biome).minimap;
-        ctx.fillRect(ox + cell.x * sc, oy + cell.y * sc, cell.w * sc - 1, cell.h * sc - 1);
+      // paint regions by sampling nearest core on a coarse grid
+      const NX = 46, NY = Math.max(1, Math.round(NX * L.h / L.w));
+      const cw = L.w / NX * sc + 1, ch = L.h / NY * sc + 1;
+      for (let iy = 0; iy < NY; iy++) for (let ix = 0; ix < NX; ix++) {
+        const wx = (ix + 0.5) / NX * L.w, wy = (iy + 0.5) / NY * L.h;
+        ctx.fillStyle = KTC.Zones.biome(L.cores[KTC.Zones.nearestCore(L.cores, wx, wy).i].biome).minimap;
+        ctx.fillRect(ox + wx * sc - cw / 2, oy + wy * sc - ch / 2, cw, ch);
+      }
+      // roads
+      ctx.strokeStyle = 'rgba(20,16,12,0.6)'; ctx.lineWidth = 1.5;
+      for (const [a, c] of L.edges) {
+        ctx.beginPath(); ctx.moveTo(ox + L.cores[a].x * sc, oy + L.cores[a].y * sc); ctx.lineTo(ox + L.cores[c].x * sc, oy + L.cores[c].y * sc); ctx.stroke();
       }
       // extraction points
       for (const ex of this.extractionPoints) {

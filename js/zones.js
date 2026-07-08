@@ -87,8 +87,50 @@ window.KTC = window.KTC || {};
     };
   }
 
+  // Organic layout: scatter biome "cores" (Voronoi seeds) with min spacing;
+  // difficulty tier radiates outward from the entry core. Regions become
+  // irregular blobs instead of a grid. Uses Util's (possibly seeded) RNG.
+  function buildOrganicLayout() {
+    const w = 4000, h = 2800, N = 8, minD = 860;
+    const entry = { x: w * 0.15, y: h * 0.8 };
+    const cores = [{ x: entry.x, y: entry.y }];
+    let guard = 0;
+    while (cores.length < N && guard++ < 800) {
+      const c = { x: U.rand(w * 0.08, w * 0.92), y: U.rand(h * 0.08, h * 0.92) };
+      if (cores.every((o) => U.dist(o.x, o.y, c.x, c.y) > minD)) cores.push(c);
+    }
+    let maxD = 1;
+    for (const c of cores) maxD = Math.max(maxD, U.dist(entry.x, entry.y, c.x, c.y));
+    cores.forEach((c, i) => {
+      const d = U.dist(entry.x, entry.y, c.x, c.y);
+      c.tier = i === 0 ? 0 : Math.min(3, 1 + Math.floor(d / maxD * 2.6));
+      c.biome = TIER_BIOME[c.tier];
+      c.i = i;
+    });
+    // connect each core to its two nearest neighbours (for roads between zones)
+    const edges = [];
+    const seen = new Set();
+    for (let i = 0; i < cores.length; i++) {
+      const near = cores.map((c, j) => ({ j, d: U.dist2(cores[i].x, cores[i].y, c.x, c.y) }))
+        .filter((o) => o.j !== i).sort((a, b) => a.d - b.d).slice(0, 2);
+      for (const o of near) { const key = Math.min(i, o.j) + '_' + Math.max(i, o.j); if (!seen.has(key)) { seen.add(key); edges.push([i, o.j]); } }
+    }
+    return { w, h, cores, edges, entry: cores[0] };
+  }
+
+  // nearest + second-nearest core to a point (for lookup + border blending)
+  function nearestCore(cores, x, y) {
+    let i = 0, d = 1e18, i2 = -1, d2 = 1e18;
+    for (let k = 0; k < cores.length; k++) {
+      const dd = U.dist2(x, y, cores[k].x, cores[k].y);
+      if (dd < d) { d2 = d; i2 = i; d = dd; i = k; }
+      else if (dd < d2) { d2 = dd; i2 = k; }
+    }
+    return { i, i2, d: Math.sqrt(d), d2: Math.sqrt(d2) };
+  }
+
   KTC.Zones = {
-    MATERIALS, BIOMES, TIER_BIOME, buildLayout,
+    MATERIALS, BIOMES, TIER_BIOME, buildLayout, buildOrganicLayout, nearestCore,
     biome: (id) => BIOMES[id],
     matOrder: ['scrap', 'iron', 'relic'],
     // roll a material kind from a biome's weighted table

@@ -68,23 +68,26 @@ window.KTC = window.KTC || {};
 
     zoneAt(x, y) {
       const L = this.zones;
-      if (!L) return null;
-      const gx = U.clamp(Math.floor(x / L.cell), 0, L.cols - 1);
-      const gy = U.clamp(Math.floor(y / L.cell), 0, L.rows - 1);
-      return L.cells[gy * L.cols + gx];
+      if (!L || !L.cores) return null;
+      return L.cores[Z.nearestCore(L.cores, x, y).i];
     }
 
     _reset() { this.solids = []; this.props = []; this.containers = []; this.benches = []; this.extractionPoints = []; }
 
     // ================= WORLD =================
-    generateWorld() {
+    // `seed` (optional) makes the whole world deterministic (daily runs). We
+    // seed the shared RNG for the duration of generation, then restore it.
+    generateWorld(seed) {
       this._reset();
       this.mode = 'world';
-      const L = Z.buildLayout(3, 2, 1200);
+      const prevRng = U.rng;
+      if (seed != null) U.useSeed(seed >>> 0);
+      const L = Z.buildOrganicLayout();
       this.w = L.w; this.h = L.h; this.zones = L;
       this._paintWorld(L);
-      for (const cell of L.cells) this._populateZone(cell);
-      this.spawn = { x: L.entry.cx, y: L.entry.cy + 40 };
+      for (const core of L.cores) this._populateCore(core, L);
+      this.spawn = { x: L.entry.x, y: L.entry.y + 40 };
+      U.rng = prevRng;
     }
 
     _paintWorld(L) {
@@ -92,76 +95,89 @@ window.KTC = window.KTC || {};
       bg.width = this.w; bg.height = this.h;
       const g = bg.getContext('2d');
       const T = 8;
-      for (const cell of L.cells) {
-        const b = Z.biome(cell.biome);
-        for (let y = cell.y; y < cell.y + cell.h; y += T) {
-          for (let x = cell.x; x < cell.x + cell.w; x += T) {
-            const pal = Math.random() < 0.34 ? b.dirt : b.grass;
-            g.fillStyle = pal[(Math.random() * pal.length) | 0];
-            g.fillRect(x, y, T, T);
-            if (Math.random() < 0.12) { g.fillStyle = 'rgba(0,0,0,0.12)'; g.fillRect(x + ((Math.random() * T) | 0), y + ((Math.random() * T) | 0), 2, 2); }
-          }
-        }
-        // scatter debris in the zone's tint
-        const debris = Math.floor(90 * b.density);
-        for (let i = 0; i < debris; i++) {
-          const x = U.rand(cell.x, cell.x + cell.w), y = U.rand(cell.y, cell.y + cell.h);
-          const roll = Math.random();
-          if (roll < 0.6) S.tuft(g, x, y, U.pick(b.tuft));
-          else if (roll < 0.82) S.rock(g, x, y, U.randInt(2, 4));
-          else S.plank(g, x, y, U.randInt(8, 16), U.rand(0, U.TAU));
+      const cores = L.cores;
+      for (let y = 0; y < this.h; y += T) {
+        for (let x = 0; x < this.w; x += T) {
+          const nc = Z.nearestCore(cores, x, y);
+          let b = Z.biome(cores[nc.i].biome);
+          // blend the border: near the boundary, sometimes use the neighbour's
+          // palette so regions bleed together instead of hard-seaming
+          if (nc.i2 >= 0 && (nc.d2 - nc.d) < 60 && U.rng() < 0.5 - (nc.d2 - nc.d) / 120) b = Z.biome(cores[nc.i2].biome);
+          // organic dirt/grass patches via value noise
+          const n = KTC.Util.noise2D(x / 240, y / 240);
+          const pal = n < 0.44 ? b.dirt : b.grass;
+          g.fillStyle = pal[(U.rng() * pal.length) | 0];
+          g.fillRect(x, y, T, T);
+          if (U.rng() < 0.12) { g.fillStyle = 'rgba(0,0,0,0.12)'; g.fillRect(x + ((U.rng() * T) | 0), y + ((U.rng() * T) | 0), 2, 2); }
         }
       }
-      // darken the seams between zones so regions read as distinct
-      g.fillStyle = 'rgba(0,0,0,0.22)';
-      for (let gx = 1; gx < L.cols; gx++) g.fillRect(gx * L.cell - 3, 0, 6, this.h);
-      for (let gy = 1; gy < L.rows; gy++) g.fillRect(0, gy * L.cell - 3, this.w, 6);
+      // roads connecting neighbouring cores (routes + chokepoints)
+      g.lineCap = 'round';
+      for (const [a, c] of L.edges) {
+        const pa = cores[a], pc = cores[c];
+        const mid = { x: (pa.x + pc.x) / 2 + U.rand(-200, 200), y: (pa.y + pc.y) / 2 + U.rand(-200, 200) };
+        g.strokeStyle = 'rgba(40,34,26,0.5)'; g.lineWidth = 26;
+        g.beginPath(); g.moveTo(pa.x, pa.y); g.quadraticCurveTo(mid.x, mid.y, pc.x, pc.y); g.stroke();
+        g.strokeStyle = Z.biome('ghost').road[0]; g.lineWidth = 18;
+        g.beginPath(); g.moveTo(pa.x, pa.y); g.quadraticCurveTo(mid.x, mid.y, pc.x, pc.y); g.stroke();
+      }
+      // ground debris tinted per nearest biome
+      for (let i = 0; i < 1400; i++) {
+        const x = U.rand(0, this.w), y = U.rand(0, this.h);
+        const b = Z.biome(cores[Z.nearestCore(cores, x, y).i].biome);
+        const roll = U.rng();
+        if (roll < 0.6) S.tuft(g, x, y, U.pick(b.tuft));
+        else if (roll < 0.82) S.rock(g, x, y, U.randInt(2, 4));
+        else S.plank(g, x, y, U.randInt(8, 16), U.rand(0, U.TAU));
+      }
       this.bg = bg;
     }
 
-    _populateZone(cell) {
-      const b = Z.biome(cell.biome);
+    // populate one biome region — sample points around the core and keep those
+    // whose nearest core is this one (so props stay inside the irregular blob)
+    _populateCore(core, L) {
+      const b = Z.biome(core.biome);
       const tints = ['#5a4c3c', '#544636', '#63513e', '#4d4030'];
-      const inCell = (mx, my) => ({ x: U.rand(cell.x + mx, cell.x + cell.w - mx), y: U.rand(cell.y + my, cell.y + cell.h - my) });
+      const R = 720;
+      const inRegion = (margin) => {
+        for (let t = 0; t < 16; t++) {
+          const a = U.rand(0, U.TAU), r = U.rand(60, R);
+          const x = U.clamp(core.x + Math.cos(a) * r, margin, this.w - margin);
+          const y = U.clamp(core.y + Math.sin(a) * r, margin, this.h - margin);
+          if (Z.nearestCore(L.cores, x, y).i === core.i) return { x, y };
+        }
+        return { x: core.x, y: core.y };
+      };
 
-      // buildings (fewer, they're big) — kept off the zone edges
       const nBuild = U.randInt(1, 3);
       for (let i = 0; i < nBuild; i++) {
-        const p = inCell(90, 90);
+        const p = inRegion(100);
         const w = U.randInt(64, 110), h = U.randInt(44, 68);
         this.props.push(new Prop(p.x, p.y, 'building', { w, h, tint: U.pick(tints) }));
         this.addSolid(p.x - w / 2, p.y - 14, w, 16, true);
       }
-      // cover: fences, logs, poles
-      for (let i = 0; i < Math.round(4 * b.density); i++) {
-        const p = inCell(40, 40); const len = U.randInt(40, 84);
-        const roll = Math.random();
+      for (let i = 0; i < Math.round(6 * b.density); i++) {
+        const p = inRegion(50); const len = U.randInt(40, 84);
+        const roll = U.rng();
         if (roll < 0.4) { this.props.push(new Prop(p.x, p.y, 'log', { len })); this.addSolid(p.x - len / 2, p.y - 8, len, 9, true); }
         else if (roll < 0.75) this.props.push(new Prop(p.x, p.y, 'fence', { len }));
         else this.props.push(new Prop(p.x, p.y, 'pole', {}));
       }
-      // lootable containers, scaled by richness/density
-      const nCont = Math.round(9 * b.density);
-      for (let i = 0; i < nCont; i++) {
-        const p = inCell(40, 40);
-        const t = U.chance(0.55) ? 'crate' : 'barrel';
-        this.addContainer(p.x, p.y, t, cell.biome, b.richness);
-      }
-      if (U.chance(0.7)) { const p = inCell(60, 60); this.addContainer(p.x, p.y, U.chance(0.5) ? 'well' : 'wagon', cell.biome, b.richness); }
-      // roguelike caches + a weapon rack — more common the deeper you go
-      const cacheChance = 0.35 + cell.tier * 0.2;
-      if (U.chance(cacheChance)) { const p = inCell(60, 60); this.addContainer(p.x, p.y, 'cache', cell.biome, b.richness); }
-      if (U.chance(0.4 + cell.tier * 0.1)) { const p = inCell(60, 60); this.addContainer(p.x, p.y, 'weaponrack', cell.biome, b.richness); }
+      const nCont = Math.round(11 * b.density);
+      for (let i = 0; i < nCont; i++) { const p = inRegion(40); this.addContainer(p.x, p.y, U.chance(0.55) ? 'crate' : 'barrel', core.biome, b.richness); }
+      if (U.chance(0.8)) { const p = inRegion(60); this.addContainer(p.x, p.y, U.chance(0.5) ? 'well' : 'wagon', core.biome, b.richness); }
+      if (U.chance(0.35 + core.tier * 0.2)) { const p = inRegion(60); this.addContainer(p.x, p.y, 'cache', core.biome, b.richness); }
+      if (U.chance(0.4 + core.tier * 0.1)) { const p = inRegion(60); this.addContainer(p.x, p.y, 'weaponrack', core.biome, b.richness); }
 
-      // one extraction point per zone, nudged clear of any solid
-      let ex = { x: cell.cx + U.rand(-120, 120), y: cell.cy + U.rand(-120, 120) };
-      for (let tries = 0; tries < 12; tries++) {
+      // extraction at the core, nudged clear of solids
+      let ex = { x: core.x, y: core.y };
+      for (let tries = 0; tries < 14; tries++) {
         let clear = true;
         for (const s of this.solids) if (ex.x > s.x - 20 && ex.x < s.x + s.w + 20 && ex.y > s.y - 20 && ex.y < s.y + s.h + 20) { clear = false; break; }
         if (clear) break;
-        ex = { x: cell.cx + U.rand(-140, 140), y: cell.cy + U.rand(-140, 140) };
+        ex = { x: core.x + U.rand(-120, 120), y: core.y + U.rand(-120, 120) };
       }
-      this.extractionPoints.push({ x: ex.x, y: ex.y, biome: cell.biome, tier: cell.tier, progress: 0, holding: false });
+      this.extractionPoints.push({ x: ex.x, y: ex.y, biome: core.biome, tier: core.tier, progress: 0, holding: false });
     }
 
     // ================= BASE HUB =================
