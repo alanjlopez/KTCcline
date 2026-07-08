@@ -56,6 +56,9 @@ window.KTC = window.KTC || {};
       this.recoil = 0;
       this.cheatUsed = false;       // Snake Oil: one save per raid
       this.perfectBuffT = 0;        // active-reload speed buff
+      this.item = null;             // equipped active item id
+      this.itemCharges = 0;
+      this.maxItemCharges = 2;
     }
 
     applyStats(st) {
@@ -196,6 +199,11 @@ window.KTC = window.KTC || {};
         const padShoot = In.pad.shoot;
         const wantFire = (w.auto || showdown || padShoot) ? (In.mouse.down || padShoot) : In.mouse.clicked;
         if (wantFire) this.shoot(game, showdown);
+      }
+
+      // active item (F)
+      if (In.actPressed('item') && this.item && this.itemCharges > 0 && !this.rolling() && !this.looting) {
+        if (game.useItem(this)) this.itemCharges--;
       }
     }
 

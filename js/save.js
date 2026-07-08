@@ -28,6 +28,8 @@ window.KTC = window.KTC || {};
       equipped: 'revolver',
       trinkets: {},                 // owned trinket ids
       loadout: [],                  // equipped trinkets brought into a raid
+      items: {},                    // owned active items
+      activeEquipped: null,         // equipped active item id
       upgrades: { maxHp: 0, ammo: 0, reload: 0, dodge: 0, speed: 0, satchel: 0, slots: 0 },
       stats: { extractions: 0, raids: 0, deaths: 0, bestLoot: 0, kills: 0 },
       settings: { volume: 0.35, shake: 1, colorblind: false, damageNumbers: true, difficulty: 'outlaw' },
@@ -59,6 +61,7 @@ window.KTC = window.KTC || {};
       const stats = Object.assign({}, d.stats, data.stats || {});
       const weapons = Object.assign({ revolver: true }, data.weapons || {});
       const trinkets = Object.assign({}, data.trinkets || {});
+      const items = Object.assign({}, data.items || {});
       const loadout = Array.isArray(data.loadout) ? data.loadout : [];
       const materials = Object.assign({}, d.materials, data.materials || {});
       const benches = Object.assign({}, d.benches, data.benches || {});
@@ -68,6 +71,7 @@ window.KTC = window.KTC || {};
       data.stats = stats;
       data.weapons = weapons;
       data.trinkets = trinkets;
+      data.items = items;
       data.loadout = loadout;
       data.materials = materials;
       data.benches = benches;

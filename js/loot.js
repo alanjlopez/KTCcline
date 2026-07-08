@@ -84,6 +84,7 @@ window.KTC = window.KTC || {};
       if (this.kind === 'trinket') { this.dead = true; game.addTrinket(this.name, this.x, this.y); return; }
       if (this.kind === 'weapon') { this.dead = true; game.equipFoundWeapon(this.name, this.x, this.y); return; }
       if (this.kind === 'material') { this.dead = true; game.addMaterial(this.name, this.value, this.x, this.y); return; }
+      if (this.kind === 'supply') { this.dead = true; game.addCharge(); return; }
       this.dead = true;
       game.addGold(this.value, this.x, this.y);
       KTC.Audio.coin();
@@ -126,6 +127,10 @@ window.KTC = window.KTC || {};
         S.px(ctx, this.x - 3, y - 3 + fb, 6, 5, mc);
         S.px(ctx, this.x - 3, y - 3 + fb, 6, 1, '#ffffff33');
         S.px(ctx, this.x - 3, y + 1 + fb, 6, 1, '#00000044');
+      } else if (this.kind === 'supply') {
+        S.px(ctx, this.x - 3, y - 3 + fb, 6, 6, '#3a4a4e');
+        S.px(ctx, this.x - 3, y - 1 + fb, 6, 1, '#8ecfd4');
+        S.px(ctx, this.x - 1, y - 3 + fb, 1, 6, '#8ecfd4');
       } else if (this.kind === 'weapon') {
         S.px(ctx, this.x - 5, y - 2 + fb, 10, 3, S.PAL.metal);
         S.px(ctx, this.x - 5, y - 2 + fb, 4, 3, S.PAL.woodDark);
@@ -198,6 +203,7 @@ window.KTC = window.KTC || {};
       const valChance = ({ crate: 0.2, barrel: 0.1, well: 0.6, wagon: 0.5 }[this.type] || 0.18) * (0.7 + rich * 0.3);
       if (U.chance(valChance)) out.push({ kind: 'valuable', value: Math.round(U.randInt(35, 85) * rich), name: U.pick(VALUABLE_NAMES) });
       if (U.chance(0.22)) out.push({ kind: 'health', value: 1 });
+      if (U.chance(0.12)) out.push({ kind: 'supply' });   // tops up an item charge
       return out;
     }
 

@@ -88,12 +88,13 @@ window.KTC = window.KTC || {};
 
       this.satchelPanel = el('div', { class: 'satchel-panel hidden' });
       this._satchelStamp = '';
+      this.itemEl = el('div', { class: 'hud-item hidden' });
       // all run-only HUD in one wrapper so the base HUD/toast can stay visible
       this.runHud = el('div', { class: 'run-hud hidden' }, [
         wpanel, this.trinketRow,
         el('div', { class: 'hud-top-center' }, [this.killsEl, this.comboEl, this.threatWrap]),
         el('div', { class: 'hud-top-right' }, [this.timerEl, this.lootEl, this.matsEl]),
-        this.heartsEl, this.showdownEl, this.extractEl, this.satchelPanel,
+        this.heartsEl, this.itemEl, this.showdownEl, this.extractEl, this.satchelPanel,
       ]);
       this.hud.appendChild(this.runHud);
 
@@ -153,7 +154,7 @@ window.KTC = window.KTC || {};
           }),
         ]),
         el('div', { class: 'stat-row', html: `Extractions <b>${st.extractions}</b> · Deaths <b>${st.deaths}</b> · Kills <b>${st.kills}</b> · Best haul <b>${st.bestLoot}</b>` }),
-        el('div', { class: 'controls-help', html: '<b>WASD</b> move · <b>Mouse</b> aim · <b>Click</b> shoot · <b>R</b> reload · <b>Space</b> dodge · <b>E</b> loot/use · <b>Q/RMB</b> showdown · <b>Tab</b> satchel' }),
+        el('div', { class: 'controls-help', html: '<b>WASD</b> move · <b>Mouse</b> aim · <b>Click</b> shoot · <b>R</b> reload · <b>Space</b> dodge · <b>E</b> loot · <b>F</b> item · <b>Q/RMB</b> showdown · <b>Tab</b> satchel' }),
         el('div', { class: 'blurb', text: 'From your camp, deploy into a large frontier of biome zones — the deeper you push, the deadlier the crows and the richer the scrap. Loot, gun down crows, gather materials, and reach any stagecoach to extract. Die and you lose everything you carried. Back home, spend materials at the workbench and gold at the gunsmith to come back harder.' }),
       ]);
     }
@@ -193,6 +194,14 @@ window.KTC = window.KTC || {};
         el('div', { class: 'section-label', text: 'IRON' }), loadout,
         el('div', { class: 'section-label', text: `TRINKETS — equip up to ${slots} (${g.save.loadout.length}/${slots})` }),
         el('div', { class: 'loadout trinket-loadout' }, chips),
+        el('div', { class: 'section-label', text: 'ACTIVE ITEM (F)' }),
+        el('div', { class: 'loadout' }, [
+          el('button', { class: 'weap-chip' + (!g.save.activeEquipped ? ' sel' : ''), onclick: () => { KTC.Audio.click(); g.save.activeEquipped = null; KTC.Save.save(g.save); this.reBench(); } }, [el('span', { text: 'None' })]),
+          ...KTC.Items.order.filter((id) => g.save.items[id]).map((id) => {
+            const it = KTC.Items.get(id);
+            return el('button', { class: 'weap-chip' + (g.save.activeEquipped === id ? ' sel' : ''), title: it.desc, onclick: () => { KTC.Audio.click(); g.save.activeEquipped = id; KTC.Save.save(g.save); this.reBench(); } }, [el('span', { html: `${it.icon} ${it.name}` })]);
+          }),
+        ]),
         el('div', { class: 'menu-buttons row' }, [
           this.bigBtn('DEPLOY', () => { KTC.Audio.click(); g.startRun(); }),
           this.btn('CLOSE', () => { KTC.Audio.click(); g.closeBench(); }),
@@ -266,6 +275,22 @@ window.KTC = window.KTC || {};
           ]), action,
         ]));
       }
+      rows.push(el('div', { class: 'section-label', text: 'ACTIVE ITEMS — one equipped, used with F (gold)' }));
+      for (const id of KTC.Items.order) {
+        const it = KTC.Items.get(id);
+        const owned = !!g.save.items[id];
+        const action = owned
+          ? (g.save.activeEquipped === id ? el('span', { class: 'tag equipped', text: 'EQUIPPED' })
+            : this.smallBtn('EQUIP', () => { g.save.activeEquipped = id; KTC.Save.save(g.save); this.reBench(); }))
+          : this.buyBtn(it.price, () => { if (g.save.gold < it.price) return this.deny(); g.save.gold -= it.price; g.save.items[id] = true; g.save.activeEquipped = id; KTC.Save.save(g.save); KTC.Audio.coin(); this.reBench(); });
+        rows.push(el('div', { class: 'shop-row' }, [
+          el('div', { class: 'shop-info' }, [
+            el('div', { class: 'shop-name', html: `<span class="ii" style="color:${it.color}">${it.icon}</span> ${it.name}` }),
+            el('div', { class: 'shop-desc', text: it.desc }),
+          ]), action,
+        ]));
+      }
+
       rows.push(el('div', { class: 'section-label', text: 'TRINKETS — worn charms (gold)' }));
       for (const id of KTC.Trinkets.order) {
         const t = KTC.Trinkets.get(id);
@@ -437,6 +462,14 @@ window.KTC = window.KTC || {};
       }
       const hearts = this.heartsEl.children;
       for (let i = 0; i < hearts.length; i++) hearts[i].className = 'heart' + (i < p.hp ? ' on' : '');
+
+      // active item slot
+      if (p.item) {
+        const it = KTC.Items.get(p.item);
+        this.itemEl.classList.remove('hidden');
+        this.itemEl.classList.toggle('empty', p.itemCharges <= 0);
+        this.itemEl.innerHTML = `<span class="ii" style="color:${it.color}">${it.icon}</span> ${it.name} <b>×${p.itemCharges}</b> <span class="key">[F]</span>`;
+      } else this.itemEl.classList.add('hidden');
 
       this.killsEl.textContent = r.kills;
       this.timerEl.textContent = U.formatTime(r.time);

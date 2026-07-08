@@ -29,6 +29,7 @@ window.KTC = window.KTC || {};
       this.damageDir = 0; this.damageDirT = 0;
       this._heartT = 0;
       this.boss = null; this._bossSpawned = false;
+      this.throwables = []; this.fireZones = []; this.traps = []; this.tempSolids = [];
       KTC.Audio.setMuted(this.save.muted);
       this.applySettings();
 
@@ -170,6 +171,11 @@ window.KTC = window.KTC || {};
       stats.maxHp += this.mods.maxHpBonus;
       this.player = new KTC.Player(this.level.spawn.x, this.level.spawn.y);
       this.player.applyStats(stats);
+      // equipped active item + fresh charges
+      this.player.item = (this.save.activeEquipped && this.save.items[this.save.activeEquipped]) ? this.save.activeEquipped : null;
+      this.player.maxItemCharges = KTC.Items.MAX_CHARGES;
+      this.player.itemCharges = this.player.item ? KTC.Items.MAX_CHARGES : 0;
+      this.throwables.length = 0; this.fireZones.length = 0; this.traps.length = 0; this.tempSolids.length = 0;
 
       this.enemies.length = 0;
       this.projectiles.length = 0;
@@ -202,6 +208,95 @@ window.KTC = window.KTC || {};
       this.emit('raidstart');
       this.setState('raid');
       if (!this.save.tutorialSeen) { this.save.tutorialSeen = true; KTC.Save.save(this.save); this.ui.toast('Loot with E · reach a stagecoach to extract · Q for showdown'); }
+    }
+
+    // ---------------- active items ----------------
+    useItem(p) {
+      const it = KTC.Items.get(p.item);
+      if (!it) return false;
+      const tx = KTC.Input.mouse.wx, ty = KTC.Input.mouse.wy;
+      if (it.kind === 'self') {
+        if (p.hp >= p.maxHp) { this.ui.toast('Already at full health.'); return false; }
+        this.healPlayer(2); KTC.Audio.pickup(); return true;
+      }
+      if (it.kind === 'throw') { this.throwables.push({ kind: p.item, x0: p.x, y0: p.y - 10, x: p.x, y: p.y - 10, tx, ty, t: 0, dur: 0.42 }); KTC.Audio.dodge(); return true; }
+      if (it.kind === 'deploy') {
+        if (it.deploy === 'cover') this.deployCover(p.x, p.y - 4);
+        else this.traps.push({ x: p.x, y: p.y, armed: 1 });
+        KTC.Audio.craft(); return true;
+      }
+      return false;
+    }
+    addCharge() {
+      const p = this.player;
+      if (p && p.item && p.itemCharges < p.maxItemCharges) { p.itemCharges++; this.particles.text(p.x, p.y - p.hh - 6, '+CHARGE', '#8ecfd4', { life: 0.7 }); KTC.Audio.pickup(); }
+    }
+    deployCover(x, y) {
+      const solid = { x: x - 16, y: y - 6, w: 32, h: 12, blocksBullets: true, container: null, temp: true };
+      this.level.solids.push(solid);
+      this.tempSolids.push({ solid, t: 9 });
+    }
+    addFireZone(x, y) { this.fireZones.push({ x, y, r: 38, t: 4, tick: 0 }); }
+
+    updateItems(dt) {
+      // thrown items arc to their target, then detonate / ignite
+      for (const t of this.throwables) {
+        t.t += dt; const k = Math.min(1, t.t / t.dur);
+        t.x = U.lerp(t.x0, t.tx, k); t.y = U.lerp(t.y0, t.ty, k) - Math.sin(k * Math.PI) * 24;
+        if (t.t >= t.dur && !t.done) {
+          t.done = true;
+          const it = KTC.Items.get(t.kind);
+          if (it.fire) this.addFireZone(t.tx, t.ty); else this.explode(t.tx, t.ty, it.blast || 44, false);
+        }
+      }
+      this.throwables = this.throwables.filter((t) => !t.done);
+      // fire zones burn crows on a tick
+      for (const f of this.fireZones) {
+        f.t -= dt; f.tick -= dt;
+        if (U.chance(dt * 30)) this.particles.spawn(f.x + U.rand(-f.r * 0.7, f.r * 0.7), f.y + U.rand(-f.r * 0.4, f.r * 0.4), { vx: 0, vy: -40, life: 0.5, size: 3, color: U.pick(['#f0a040', '#e07a3a', '#f6d060']) });
+        if (f.tick <= 0) {
+          f.tick = 0.45;
+          for (const e of this.enemies) if (!e.dead && U.dist(f.x, f.y, e.x, e.y) < f.r + e.r) e.hurt(1, U.angle(f.x, f.y, e.x, e.y), this, false);
+        }
+      }
+      this.fireZones = this.fireZones.filter((f) => f.t > 0);
+      // traps: kill the first crow that steps on them
+      for (const tr of this.traps) {
+        if (!tr.armed) continue;
+        for (const e of this.enemies) {
+          if (e.dead) continue;
+          if (U.dist(tr.x, tr.y, e.x, e.y) < 12 + e.r) { e.hurt(1, U.rand(0, U.TAU), this, false); tr.armed = 0; this.particles.spark(tr.x, tr.y, 0); this.particles.shake(2, 0.15); break; }
+        }
+      }
+      this.traps = this.traps.filter((tr) => tr.armed);
+      // temporary cover expires
+      for (const c of this.tempSolids) c.t -= dt;
+      for (const c of this.tempSolids.filter((c) => c.t <= 0)) { const i = this.level.solids.indexOf(c.solid); if (i >= 0) this.level.solids.splice(i, 1); }
+      this.tempSolids = this.tempSolids.filter((c) => c.t > 0);
+    }
+
+    renderItems(ctx) {
+      for (const f of this.fireZones) {
+        ctx.save(); ctx.globalAlpha = 0.22 * Math.min(1, f.t); ctx.fillStyle = '#e07a3a';
+        ctx.beginPath(); ctx.ellipse(f.x, f.y, f.r, f.r * 0.6, 0, 0, U.TAU); ctx.fill(); ctx.restore();
+      }
+      for (const c of this.tempSolids) {
+        const s = c.solid;
+        S.px(ctx, s.x, s.y - 6, s.w, 8, S.PAL.woodDark);
+        S.px(ctx, s.x, s.y - 6, s.w, 2, S.PAL.wood);
+        for (let i = 0; i < s.w; i += 7) S.px(ctx, s.x + i, s.y - 6, 1, 8, S.PAL.wood);
+      }
+      for (const tr of this.traps) {
+        S.px(ctx, tr.x - 5, tr.y - 2, 10, 4, S.PAL.metal);
+        S.px(ctx, tr.x - 5, tr.y - 3, 3, 2, S.PAL.metalLight);
+        S.px(ctx, tr.x + 2, tr.y - 3, 3, 2, S.PAL.metalLight);
+      }
+      for (const t of this.throwables) {
+        const it = KTC.Items.get(t.kind);
+        ctx.fillStyle = it.color;
+        ctx.beginPath(); ctx.arc(t.x, t.y, 3.5, 0, U.TAU); ctx.fill();
+        ctx.fillStyle = '#20201c'; ctx.fillRect(t.x - 0.5, t.y - 6, 1, 3);
+      }
     }
 
     // materials feed the crafting benches; banked on extract, lost on death
@@ -536,6 +631,7 @@ window.KTC = window.KTC || {};
       }
       if (this._fullToastT > 0) this._fullToastT -= dt;
       this.particles.update(dt);
+      this.updateItems(dt);
       this.updateExtract(dt);
 
       // reap dead
@@ -628,6 +724,7 @@ window.KTC = window.KTC || {};
 
       this.level.renderBackground(ctx);
       if (this.decals.length) this.renderDecals(ctx);
+      if (this.state === 'raid' || this.state === 'paused') this.renderItems(ctx);
 
       // gather y-sorted drawables
       const draw = [];
