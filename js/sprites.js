@@ -316,6 +316,29 @@ window.KTC = window.KTC || {};
       ctx.save(); ctx.globalAlpha = 0.25 + 0.2 * Math.sin(t); ctx.fillStyle = '#ff7a4a';
       ctx.beginPath(); ctx.ellipse(0, -8, 11, 11, 0, 0, KTC.Util.TAU); ctx.fill(); ctx.restore();
     },
+    // interior wall segment (plank), horizontal or vertical, centred at origin
+    wall(ctx, len, vertical) {
+      len = len || 40;
+      if (vertical) {
+        shadow(ctx, 5, 0.5);
+        px(ctx, -3, -len / 2, 6, len, PAL.woodDark);
+        px(ctx, -3, -len / 2, 2, len, PAL.wood);
+        for (let y = -len / 2; y < len / 2; y += 8) px(ctx, -3, y, 6, 1, 'rgba(0,0,0,0.25)');
+      } else {
+        shadow(ctx, len * 0.5, 0.16);
+        px(ctx, -len / 2, -9, len, 9, PAL.woodDark);
+        px(ctx, -len / 2, -9, len, 2, PAL.wood);
+        for (let x = -len / 2; x < len / 2; x += 8) px(ctx, x, -9, 1, 9, 'rgba(0,0,0,0.25)');
+      }
+    },
+    // a lonely grave marker for Boot Hill
+    grave(ctx) {
+      shadow(ctx, 6, 0.3);
+      px(ctx, -4, -12, 8, 12, '#6a6157');
+      px(ctx, -7, -8, 14, 3, '#6a6157');
+      px(ctx, -4, -12, 8, 2, '#837a6e');
+      px(ctx, -1, -10, 2, 5, 'rgba(0,0,0,0.3)');
+    },
     // shattered cover left after a fence/log is shot apart
     rubble(ctx, len) {
       len = len || 20;
@@ -342,6 +365,31 @@ window.KTC = window.KTC || {};
       } else {
         px(ctx, -11, -18, 22, 4, '#4a3a56');  // lid flipped open
         px(ctx, -8, -11, 16, 3, '#17120f');
+      }
+    },
+    // a heavy iron vault — locked until you bring a key, then swings open
+    vault(ctx, opened, locked) {
+      shadow(ctx, 12);
+      px(ctx, -12, -20, 24, 20, '#3a4048');
+      px(ctx, -12, -20, 24, 3, '#4c545e');
+      px(ctx, -12, -3, 24, 3, '#23282e');
+      if (!opened) {
+        px(ctx, -9, -17, 18, 14, '#2c3138');           // door
+        px(ctx, -9, -17, 18, 2, '#454d57');
+        ctx.strokeStyle = '#5a636e'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(0, -10, 5, 0, KTC.Util.TAU); ctx.stroke();   // dial
+        px(ctx, -0.5, -15, 1, 4, '#7a828c');
+        // keyhole + a soft glow so it reads as "special"
+        px(ctx, 5, -11, 2, 3, '#e3c06a');
+        ctx.save();
+        ctx.globalAlpha = 0.28 + 0.2 * Math.sin(performance.now() / 300);
+        ctx.fillStyle = locked ? '#c99a4a' : '#8ecfd4';
+        ctx.beginPath(); ctx.ellipse(0, -10, 15, 13, 0, 0, KTC.Util.TAU); ctx.fill();
+        ctx.restore();
+      } else {
+        px(ctx, -9, -17, 18, 14, '#14171b');           // emptied interior
+        px(ctx, 9, -17, 5, 14, '#2c3138');              // door swung to the side
+        px(ctx, 9, -17, 2, 14, '#454d57');
       }
     },
     // a rack with a spare iron on it

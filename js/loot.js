@@ -85,6 +85,7 @@ window.KTC = window.KTC || {};
       if (this.kind === 'weapon') { this.dead = true; game.equipFoundWeapon(this.name, this.x, this.y); return; }
       if (this.kind === 'material') { this.dead = true; game.addMaterial(this.name, this.value, this.x, this.y); return; }
       if (this.kind === 'supply') { this.dead = true; game.addCharge(); return; }
+      if (this.kind === 'key') { this.dead = true; game.addKey(this.x, this.y); return; }
       this.dead = true;
       game.addGold(this.value, this.x, this.y);
       KTC.Audio.coin();
@@ -131,6 +132,15 @@ window.KTC = window.KTC || {};
         S.px(ctx, this.x - 3, y - 3 + fb, 6, 6, '#3a4a4e');
         S.px(ctx, this.x - 3, y - 1 + fb, 6, 1, '#8ecfd4');
         S.px(ctx, this.x - 1, y - 3 + fb, 1, 6, '#8ecfd4');
+      } else if (this.kind === 'key') {
+        // brass key, glints so you spot it on the ground
+        const gl = 0.4 + 0.4 * Math.sin(this.bob * 1.8);
+        ctx.globalAlpha = 0.3 + 0.3 * gl; ctx.fillStyle = '#e3c06a';
+        ctx.beginPath(); ctx.arc(this.x, y + fb, 6, 0, U.TAU); ctx.fill(); ctx.globalAlpha = 1;
+        S.px(ctx, this.x - 3, y - 2 + fb, 4, 4, '#c9a24a');
+        S.px(ctx, this.x - 2, y - 1 + fb, 2, 2, '#17120f');
+        S.px(ctx, this.x + 1, y - 1 + fb, 4, 1.5, '#c9a24a');
+        S.px(ctx, this.x + 4, y - 1 + fb, 1.5, 3, '#c9a24a');
       } else if (this.kind === 'weapon') {
         S.px(ctx, this.x - 5, y - 2 + fb, 10, 3, S.PAL.metal);
         S.px(ctx, this.x - 5, y - 2 + fb, 4, 3, S.PAL.woodDark);
@@ -153,12 +163,14 @@ window.KTC = window.KTC || {};
       this.type = type;             // 'crate' | 'barrel' | 'well' | 'wagon' | 'powderbarrel'
       this.opened = false;
       // hold-E channel length: richer caches take longer (more exposure)
-      this.channelTime = { crate: 0.9, barrel: 0.9, wagon: 1.6, well: 2.0, cache: 1.6, weaponrack: 1.4 }[type] || 0.9;
+      this.channelTime = { crate: 0.9, barrel: 0.9, wagon: 1.6, well: 2.0, cache: 1.6, weaponrack: 1.4, vault: 2.2 }[type] || 0.9;
       this.lootProgress = 0;
-      this.r = type === 'well' ? 16 : type === 'wagon' ? 16 : 9;
-      this.hh = type === 'well' ? 34 : type === 'weaponrack' ? 18 : 15;
+      this.r = type === 'well' ? 16 : type === 'wagon' ? 16 : type === 'vault' ? 12 : 9;
+      this.hh = type === 'well' ? 34 : type === 'weaponrack' ? 18 : type === 'vault' ? 18 : 15;
       // powder barrels aren't looted — they detonate when shot or caught in a blast
       this.explosive = type === 'powderbarrel' ? 48 : 0;
+      this.locked = type === 'vault';   // needs a key
+      this.keyDrop = false;             // a keychest coughs up a vault key
       this._det = false;
     }
 
@@ -194,12 +206,26 @@ window.KTC = window.KTC || {};
         KTC.Audio.trinket();
         return;
       }
+      // a cracked vault: the run's richest single prize
+      if (this.type === 'vault') {
+        const rares = KTC.Trinkets.order.filter((id) => KTC.Trinkets.get(id).rarity === 'rare');
+        const owned = new Set(game.trinkets);
+        const pick = rares.filter((id) => !owned.has(id));
+        game.pickups.push(new Pickup(this.x, this.y - 6, 'trinket', 0, U.pick(pick.length ? pick : rares)));
+        for (let i = 0; i < 2; i++) game.pickups.push(new Pickup(this.x + U.rand(-10, 10), this.y + U.rand(-4, 4), 'valuable', U.randInt(90, 160), U.pick(VALUABLE_NAMES)));
+        for (let i = 0; i < 3; i++) game.pickups.push(new Pickup(this.x + U.rand(-12, 12), this.y + U.rand(-6, 6), 'material', i === 0 ? 1 : 2, i === 0 ? 'relic' : 'iron'));
+        game.particles.text(this.x, this.y - this.hh - 4, 'VAULT!', '#c9a2ff', { life: 1.2 });
+        KTC.Audio.trinket();
+        return;
+      }
       KTC.Audio.pickup();
       const drops = this.lootTable();
       for (const d of drops) {
         game.pickups.push(new Pickup(this.x + U.rand(-6, 6), this.y + U.rand(-4, 4), d.kind, d.value, d.name));
       }
-      game.particles.text(this.x, this.y - this.hh - 4, 'LOOTED', '#e3c06a', { life: 0.8 });
+      // a keychest always yields the vault key
+      if (this.keyDrop) { game.pickups.push(new Pickup(this.x, this.y - 6, 'key', 0)); game.particles.text(this.x, this.y - this.hh - 4, '🔑 KEY', '#e3c06a', { life: 1 }); }
+      else game.particles.text(this.x, this.y - this.hh - 4, 'LOOTED', '#e3c06a', { life: 0.8 });
     }
 
     lootTable() {
@@ -227,8 +253,16 @@ window.KTC = window.KTC || {};
       if (this.lootProgress > 0 && !this.opened) ctx.filter = 'brightness(1.25)';
       if (this.type === 'cache') {
         S.cache(ctx, this.opened);
+      } else if (this.type === 'vault') {
+        S.vault(ctx, this.opened, this.locked);
       } else if (this.type === 'weaponrack') {
         S.weaponrack(ctx, this.opened);
+      } else if (this.keyDrop && !this.opened) {
+        S.crate(ctx, false);
+        const gl = 0.3 + 0.3 * Math.sin(performance.now() / 260);
+        ctx.globalAlpha = 0.3 + 0.3 * gl; ctx.fillStyle = '#e3c06a';
+        ctx.beginPath(); ctx.arc(0, -8, 9, 0, U.TAU); ctx.fill(); ctx.globalAlpha = 1;
+        S.px(ctx, -2, -9, 3, 3, '#c9a24a'); S.px(ctx, 1, -8, 3, 1.5, '#c9a24a');
       } else if (this.opened && this.type !== 'well' && this.type !== 'wagon') {
         // emptied crate/barrel: pried-open remains
         ctx.globalAlpha = 0.85;

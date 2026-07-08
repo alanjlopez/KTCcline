@@ -196,8 +196,10 @@ window.KTC = window.KTC || {};
         foundTrinkets: [],              // trinkets/guns picked up THIS run
         foundWeapons: [],
         killsSinceHeal: 0,
+        keys: 0,                        // vault keys carried this run (lost on death)
         seed: seed == null ? null : (seed >>> 0), daily: seed != null,
       };
+      this._poiT = 0; this._curPoi = null;
       this.extractionPoints = this.level.extractionPoints;
       for (const ex of this.extractionPoints) { ex.progress = 0; ex.holding = false; ex.glow = U.rand(0, 6); }
       this.extract = null;
@@ -324,6 +326,14 @@ window.KTC = window.KTC || {};
       const m = KTC.Zones.MATERIALS[type] || { icon: '?', color: '#fff' };
       this.particles.text(x, y - 10, m.icon + '+' + amount, m.color, { life: 0.7, size: 6 });
       KTC.Audio.pickup();
+    }
+
+    // a vault key — carried this run only, lost on death like the rest of your haul
+    addKey(x, y) {
+      this.run.keys = (this.run.keys || 0) + 1;
+      this.particles.text(x, y - 14, '🔑 KEY', '#e3c06a', { life: 1.2, size: 7 });
+      KTC.Audio.pickup();
+      this.ui.toast('Vault key — crack a vault before you extract');
     }
 
     // ---------------- roguelike engine ----------------
@@ -721,6 +731,14 @@ window.KTC = window.KTC || {};
       const tier = Math.floor(this.threat / KTC.Tune.threat.milestone);
       if (tier > this._threatTier) { this._threatTier = tier; this.ui.toast('The crows are closing in…'); this.particles.shake(3, 0.3); }
 
+      // named landmarks — a banner the first time you set foot in one
+      if (this.level.pois && this.level.pois.length) {
+        let inPoi = null;
+        for (const poi of this.level.pois) if (U.dist(p.x, p.y, poi.x, poi.y) < 190) { inPoi = poi; break; }
+        if (inPoi && inPoi !== this._curPoi) { this._curPoi = inPoi; this.ui.toast('◆ ' + inPoi.name); }
+        else if (!inPoi) this._curPoi = null;
+      }
+
       // low-HP heartbeat + fading directional damage indicator
       if (this.damageDirT > 0) this.damageDirT -= dt;
       if (p.hp <= 2 && !p.dead) { this._heartT -= dt; if (this._heartT <= 0) { this._heartT = 0.85; KTC.Audio.heartbeat(); } }
@@ -941,6 +959,12 @@ window.KTC = window.KTC || {};
         ctx.fillStyle = ex.holding ? '#fff2c0' : '#e3c06a';
         const ex2 = ox + ex.x * sc, ey2 = oy + ex.y * sc;
         ctx.beginPath(); ctx.moveTo(ex2, ey2 - 3); ctx.lineTo(ex2 + 3, ey2 + 2); ctx.lineTo(ex2 - 3, ey2 + 2); ctx.closePath(); ctx.fill();
+      }
+      // named landmarks (POIs) as little diamonds
+      for (const poi of (this.level.pois || [])) {
+        const px2 = ox + poi.x * sc, py2 = oy + poi.y * sc;
+        ctx.fillStyle = '#c9a2ff';
+        ctx.save(); ctx.translate(px2, py2); ctx.rotate(Math.PI / 4); ctx.fillRect(-2, -2, 4, 4); ctx.restore();
       }
       // enemies as faint dots
       ctx.fillStyle = 'rgba(181,67,58,0.8)';

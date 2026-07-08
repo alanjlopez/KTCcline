@@ -597,7 +597,7 @@ window.KTC = window.KTC || {};
 
       this.killsEl.textContent = r.kills;
       this.timerEl.textContent = U.formatTime(r.time);
-      this.lootEl.innerHTML = `<span class="coin">◉</span> ${r.gold} <span class="val">✦ ${r.satchel.length}/${r.cap}</span>`;
+      this.lootEl.innerHTML = `<span class="coin">◉</span> ${r.gold} <span class="val">✦ ${r.satchel.length}/${r.cap}</span>` + (r.keys > 0 ? ` <span class="keys">🔑 ${r.keys}</span>` : '');
       this.matsEl.innerHTML = this.matHtml(r.materials, true);
 
       // threat bar (0..~20 mapped to full, colour shifts to red)

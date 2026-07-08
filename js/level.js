@@ -29,6 +29,8 @@ window.KTC = window.KTC || {};
       else if (this.kind === 'tent') S.tent(ctx, o.tint);
       else if (this.kind === 'campfire') S.campfire(ctx);
       else if (this.kind === 'gate') S.gate(ctx);
+      else if (this.kind === 'wall') S.wall(ctx, o.len, o.o === 'v');
+      else if (this.kind === 'grave') S.grave(ctx);
       ctx.restore();
     }
   }
@@ -47,6 +49,7 @@ window.KTC = window.KTC || {};
       this.containers = [];
       this.benches = [];
       this.extractionPoints = [];
+      this.pois = [];
       this.zones = null;
       this.bg = null;
       this.spawn = { x: this.w / 2, y: this.h * 0.62 };
@@ -76,7 +79,7 @@ window.KTC = window.KTC || {};
       return L.cores[Z.nearestCore(L.cores, x, y).i];
     }
 
-    _reset() { this.solids = []; this.props = []; this.containers = []; this.benches = []; this.extractionPoints = []; }
+    _reset() { this.solids = []; this.props = []; this.containers = []; this.benches = []; this.extractionPoints = []; this.pois = []; }
 
     // ================= WORLD =================
     // `seed` (optional) makes the whole world deterministic (daily runs). We
@@ -90,8 +93,61 @@ window.KTC = window.KTC || {};
       this.w = L.w; this.h = L.h; this.zones = L;
       this._paintWorld(L);
       for (const core of L.cores) this._populateCore(core, L);
+      // named landmarks on a couple of the deeper cores (skip the entry core)
+      const poiCores = L.cores.filter((c) => c.tier >= 1).sort(() => U.rng() - 0.5).slice(0, U.randInt(2, 3));
+      for (const core of poiCores) this._placePOI(core, L);
       this.spawn = { x: L.entry.x, y: L.entry.y + 40 };
       U.rng = prevRng;
+    }
+
+    // an on-map walled room with a south doorway — loot-dense, entered on foot.
+    // Returns the room centre so callers can stock it.
+    _placeInterior(cx, cy, w, h) {
+      const t = 6, half = w / 2, hh = h / 2, dw = 24, seg = (w - dw) / 2;
+      this.addSolid(cx - half, cy - hh, w, t, true);                  // north wall
+      this.addSolid(cx - half, cy - hh, t, h, true);                  // west wall
+      this.addSolid(cx + half - t, cy - hh, t, h, true);              // east wall
+      this.addSolid(cx - half, cy + hh - t, seg, t, true);            // south-west (door gap)
+      this.addSolid(cx + half - seg, cy + hh - t, seg, t, true);      // south-east
+      // wall props, one per segment so each y-sorts on its own
+      this.props.push(new Prop(cx, cy - hh + 3, 'wall', { len: w, o: 'h' }));
+      this.props.push(new Prop(cx - half + 3, cy, 'wall', { len: h, o: 'v' }));
+      this.props.push(new Prop(cx + half - 3, cy, 'wall', { len: h, o: 'v' }));
+      this.props.push(new Prop(cx - half + seg / 2, cy + hh - 3, 'wall', { len: seg, o: 'h' }));
+      this.props.push(new Prop(cx + half - seg / 2, cy + hh - 3, 'wall', { len: seg, o: 'h' }));
+      return { x: cx, y: cy };
+    }
+
+    // a themed landmark cluster: an interior loot room holding a locked VAULT,
+    // plus a KEYCHEST (its key) and theme props, all around one core.
+    _placePOI(core, L) {
+      const b = Z.biome(core.biome);
+      const margin = 130;
+      // a clear-ish spot near the core to anchor the landmark
+      let c = { x: core.x, y: core.y };
+      for (let t = 0; t < 20; t++) {
+        const a = U.rand(0, U.TAU), r = U.rand(80, 360);
+        const x = U.clamp(core.x + Math.cos(a) * r, margin, this.w - margin);
+        const y = U.clamp(core.y + Math.sin(a) * r, margin, this.h - margin);
+        if (Z.nearestCore(L.cores, x, y).i === core.i) { c = { x, y }; break; }
+      }
+      const name = U.pick(['The Saloon', 'Silverpeak Mine', "Boot Hill", 'Rusty Spur Ranch']);
+      const rw = U.randInt(96, 130), rh = U.randInt(76, 100);
+      const room = this._placeInterior(c.x, c.y, rw, rh);
+      // the reward: a locked vault deep in the room + crates around it
+      this.addContainer(room.x, room.y - rh * 0.22, 'vault', core.biome, b.richness + 1);
+      this.addContainer(room.x - rw * 0.28, room.y, 'crate', core.biome, b.richness);
+      this.addContainer(room.x + rw * 0.28, room.y, 'crate', core.biome, b.richness);
+      // the key: a keychest just outside the door, so you fetch it then go in
+      const kc = this.addContainer(c.x + U.rand(-30, 30), c.y + rh * 0.5 + U.randInt(34, 60), 'crate', core.biome, b.richness);
+      kc.keyDrop = true;
+      // theme dressing around the landmark
+      const around = (dx, dy) => ({ x: U.clamp(c.x + dx, margin, this.w - margin), y: U.clamp(c.y + dy, margin, this.h - margin) });
+      if (name === 'The Saloon') { const p = around(-rw, -10); this.props.push(new Prop(p.x, p.y, 'building', { w: 84, h: 52, tint: '#5a4636' })); this.addSolid(p.x - 42, p.y - 14, 84, 16, true); this.addContainer(c.x - rw * 0.7, c.y + 30, 'well', core.biome, b.richness); }
+      else if (name === 'Silverpeak Mine') { for (let i = 0; i < 3; i++) { const p = around(U.rand(-rw, rw), rh * 0.6 + U.rand(0, 40)); this.addContainer(p.x, p.y, 'powderbarrel', core.biome, b.richness); } }
+      else if (name === 'Boot Hill') { for (let i = 0; i < 6; i++) { const p = around(U.rand(-rw, rw), U.rand(rh * 0.6, rh * 1.2)); this.props.push(new Prop(p.x, p.y, 'grave', {})); } }
+      else { for (let i = 0; i < 4; i++) { const p = around(U.rand(-rw, rw), rh * 0.7 + i * 6); this.props.push(new Prop(p.x, p.y, 'fence', { len: U.randInt(44, 70) })); } this.addContainer(c.x + rw * 0.6, c.y + 20, 'wagon', core.biome, b.richness); }
+      this.pois.push({ x: c.x, y: c.y, name, tier: core.tier });
     }
 
     _paintWorld(L) {

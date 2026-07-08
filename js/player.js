@@ -48,6 +48,7 @@ window.KTC = window.KTC || {};
       this.nearContainer = null;
       this.looting = false;
       this.lootStunT = 0;           // brief lockout after taking damage
+      this._lockToastT = 0;         // throttle the "locked vault" toast
 
       // timers
       this.hitInvulnT = 0;
@@ -162,6 +163,7 @@ window.KTC = window.KTC || {};
 
       // ---- looting: stand still next to a container and hold E ----
       if (this.lootStunT > 0) this.lootStunT -= dt;
+      if (this._lockToastT > 0) this._lockToastT -= dt;
       this.nearContainer = null;
       let bestD2 = 32 * 32;
       for (const c of game.level.containers) {
@@ -173,10 +175,15 @@ window.KTC = window.KTC || {};
       if (this.nearContainer && In.actDown('loot') && !this.rolling() &&
           !(ix || iy) && this.lootStunT <= 0) {
         const c = this.nearContainer;
-        this.looting = true;
-        if (c.lootProgress === 0) KTC.Audio.rustle();
-        c.lootProgress += dt;
-        if (c.lootProgress >= c.channelTime) c.open(game);
+        if (c.locked && (game.run.keys || 0) <= 0) {
+          // a vault with no key — refuse and nudge the player toward a keychest
+          if (this._lockToastT <= 0) { this._lockToastT = 1.4; game.ui.toast('Locked — a key cracks this vault'); KTC.Audio.denyFull(); }
+        } else {
+          this.looting = true;
+          if (c.lootProgress === 0) KTC.Audio.rustle();
+          c.lootProgress += dt;
+          if (c.lootProgress >= c.channelTime) { if (c.locked) game.run.keys = Math.max(0, (game.run.keys || 0) - 1); c.open(game); }
+        }
       }
 
       // weapon: reload (blocked while rummaging through a container).
