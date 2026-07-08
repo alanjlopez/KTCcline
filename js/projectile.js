@@ -74,6 +74,9 @@ window.KTC = window.KTC || {};
       for (const s of game.level.solids) {
         if (s.container ? s.container.opened : !s.blocksBullets) continue;
         if (this.x > s.x && this.x < s.x + s.w && this.y > s.y && this.y < s.y + s.h) {
+          // shooting a powder barrel sets it off; light cover chips away
+          if (s.container && s.container.explosive && !s.container.opened) { s.container.detonate(game); this.dead = true; return; }
+          if (s.breakable) { game.damageCover(s, 1); game.particles.spark(this.x, this.y, this.angle); this.expire(game); return; }
           if (this.bounces > 0 && !this.explosive) {
             this.bounces--;
             // reflect off whichever face we crossed

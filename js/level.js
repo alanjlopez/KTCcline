@@ -16,11 +16,12 @@ window.KTC = window.KTC || {};
   const Z = KTC.Zones;
 
   class Prop {
-    constructor(x, y, kind, opts) { this.x = x; this.y = y; this.kind = kind; this.opts = opts || {}; }
+    constructor(x, y, kind, opts) { this.x = x; this.y = y; this.kind = kind; this.opts = opts || {}; this.broken = false; }
     render(ctx) {
       ctx.save();
       ctx.translate(this.x, this.y);
       const o = this.opts;
+      if (this.broken) { S.rubble(ctx, o.len || 20); ctx.restore(); return; }   // shot-apart cover
       if (this.kind === 'building') S.building(ctx, o.w, o.h, o.tint);
       else if (this.kind === 'log') S.log(ctx, o.len);
       else if (this.kind === 'fence') S.fence(ctx, o.len);
@@ -51,8 +52,11 @@ window.KTC = window.KTC || {};
       this.spawn = { x: this.w / 2, y: this.h * 0.62 };
     }
 
-    addSolid(x, y, w, h, blocksBullets, container) {
-      this.solids.push({ x, y, w, h, blocksBullets: blocksBullets !== false, container: container || null });
+    addSolid(x, y, w, h, blocksBullets, container, breakHp, prop) {
+      const s = { x, y, w, h, blocksBullets: blocksBullets !== false, container: container || null };
+      if (breakHp) { s.breakable = true; s.hp = breakHp; s.prop = prop || null; }
+      this.solids.push(s);
+      return s;
     }
 
     addContainer(x, y, type, biome, richness) {
@@ -60,8 +64,8 @@ window.KTC = window.KTC || {};
       c.biome = biome || 'ghost';
       c.richness = richness || 1;
       this.containers.push(c);
-      const bw = type === 'well' ? 30 : type === 'wagon' ? 34 : type === 'barrel' ? 12 : 14;
-      const bh = type === 'well' ? 14 : type === 'wagon' ? 12 : type === 'barrel' ? 13 : 12;
+      const bw = type === 'well' ? 30 : type === 'wagon' ? 34 : (type === 'barrel' || type === 'powderbarrel') ? 12 : 14;
+      const bh = type === 'well' ? 14 : type === 'wagon' ? 12 : (type === 'barrel' || type === 'powderbarrel') ? 13 : 12;
       this.addSolid(x - bw / 2, y - bh, bw, bh, false, c);
       return c;
     }
@@ -159,12 +163,16 @@ window.KTC = window.KTC || {};
       for (let i = 0; i < Math.round(6 * b.density); i++) {
         const p = inRegion(50); const len = U.randInt(40, 84);
         const roll = U.rng();
-        if (roll < 0.4) { this.props.push(new Prop(p.x, p.y, 'log', { len })); this.addSolid(p.x - len / 2, p.y - 8, len, 9, true); }
-        else if (roll < 0.75) this.props.push(new Prop(p.x, p.y, 'fence', { len }));
+        // logs & fences are destructible cover — bullets and blasts break them
+        if (roll < 0.4) { const pr = new Prop(p.x, p.y, 'log', { len }); this.props.push(pr); this.addSolid(p.x - len / 2, p.y - 8, len, 9, true, null, 16, pr); }
+        else if (roll < 0.75) { const pr = new Prop(p.x, p.y, 'fence', { len }); this.props.push(pr); this.addSolid(p.x - len / 2, p.y - 7, len, 6, true, null, 8, pr); }
         else this.props.push(new Prop(p.x, p.y, 'pole', {}));
       }
       const nCont = Math.round(11 * b.density);
       for (let i = 0; i < nCont; i++) { const p = inRegion(40); this.addContainer(p.x, p.y, U.chance(0.55) ? 'crate' : 'barrel', core.biome, b.richness); }
+      // explosive powder barrels — hazards & tools, thicker in the deeper tiers
+      const nPowder = (U.chance(0.6) ? 1 : 0) + (core.tier >= 2 ? U.randInt(1, 2) : 0);
+      for (let i = 0; i < nPowder; i++) { const p = inRegion(46); this.addContainer(p.x, p.y, 'powderbarrel', core.biome, b.richness); }
       if (U.chance(0.8)) { const p = inRegion(60); this.addContainer(p.x, p.y, U.chance(0.5) ? 'well' : 'wagon', core.biome, b.richness); }
       if (U.chance(0.35 + core.tier * 0.2)) { const p = inRegion(60); this.addContainer(p.x, p.y, 'cache', core.biome, b.richness); }
       if (U.chance(0.4 + core.tier * 0.1)) { const p = inRegion(60); this.addContainer(p.x, p.y, 'weaponrack', core.biome, b.richness); }

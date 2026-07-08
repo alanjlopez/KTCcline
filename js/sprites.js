@@ -302,6 +302,29 @@ window.KTC = window.KTC || {};
       px(ctx, -6, -11, 12, 1.5, PAL.metal);
       px(ctx, -6, -5, 12, 1.5, PAL.metal);
     },
+    // explosive powder barrel — red staves + a hazard skull, glints so you spot it
+    powderbarrel(ctx) {
+      shadow(ctx, 7);
+      px(ctx, -6, -16, 12, 16, '#6e2a22');
+      px(ctx, -6, -16, 12, 2, '#8a3a2c');
+      px(ctx, -6, -12, 12, 1.5, PAL.metal);
+      px(ctx, -6, -5, 12, 1.5, PAL.metal);
+      px(ctx, -3, -11, 6, 5, '#1c1510');            // hazard panel
+      px(ctx, -2, -10, 1, 1, '#e0c040'); px(ctx, 1, -10, 1, 1, '#e0c040');  // eyes
+      px(ctx, -1, -8, 2, 1, '#e0c040');
+      const t = performance.now() / 300;
+      ctx.save(); ctx.globalAlpha = 0.25 + 0.2 * Math.sin(t); ctx.fillStyle = '#ff7a4a';
+      ctx.beginPath(); ctx.ellipse(0, -8, 11, 11, 0, 0, KTC.Util.TAU); ctx.fill(); ctx.restore();
+    },
+    // shattered cover left after a fence/log is shot apart
+    rubble(ctx, len) {
+      len = len || 20;
+      shadow(ctx, len * 0.4, 0.16);
+      px(ctx, -len / 2, -3, len * 0.4, 3, PAL.woodDark);
+      Sprites.plank(ctx, -len * 0.2, -1, len * 0.4, 0.5);
+      Sprites.plank(ctx, len * 0.18, 0, len * 0.3, -0.6);
+      px(ctx, len * 0.32, -2, 3, 2, PAL.wood);
+    },
     // ornate strongbox holding a trinket — glints purple to stand out
     cache(ctx, opened) {
       shadow(ctx, 10);

@@ -240,7 +240,7 @@ window.KTC = window.KTC || {};
       this.level.solids.push(solid);
       this.tempSolids.push({ solid, t: 9 });
     }
-    addFireZone(x, y) { this.fireZones.push({ x, y, r: 38, t: 4, tick: 0 }); }
+    addFireZone(x, y, sp) { this.fireZones.push({ x, y, r: 38, t: 4, tick: 0, sp: sp == null ? 3 : sp }); }
 
     updateItems(dt) {
       // thrown items arc to their target, then detonate / ignite
@@ -254,7 +254,8 @@ window.KTC = window.KTC || {};
         }
       }
       this.throwables = this.throwables.filter((t) => !t.done);
-      // fire zones burn crows on a tick
+      // fire zones burn crows on a tick — and creep outward onto fresh ground
+      const newFires = [];
       for (const f of this.fireZones) {
         f.t -= dt; f.tick -= dt;
         if (U.chance(dt * 30)) this.particles.spawn(f.x + U.rand(-f.r * 0.7, f.r * 0.7), f.y + U.rand(-f.r * 0.4, f.r * 0.4), { vx: 0, vy: -40, life: 0.5, size: 3, color: U.pick(['#f0a040', '#e07a3a', '#f6d060']) });
@@ -265,7 +266,16 @@ window.KTC = window.KTC || {};
             e.hurt(1, U.angle(f.x, f.y, e.x, e.y), this, false);
           }
         }
+        // spread: a lively fire seeds a smaller child fire nearby (bounded)
+        if (f.sp > 0 && f.t > 0.7 && this.fireZones.length + newFires.length < 46 && U.chance(dt * 2.2)) {
+          const a = U.rand(0, U.TAU), dst = U.rand(22, 34);
+          const nx = U.clamp(f.x + Math.cos(a) * dst, 20, this.level.w - 20);
+          const ny = U.clamp(f.y + Math.sin(a) * dst, 20, this.level.h - 20);
+          f.sp--;
+          newFires.push({ x: nx, y: ny, r: f.r * 0.82, t: f.t * 0.82, tick: 0.1, sp: Math.max(0, f.sp - 1) });
+        }
       }
+      if (newFires.length) for (const nf of newFires) this.fireZones.push(nf);
       this.fireZones = this.fireZones.filter((f) => f.t > 0);
       // traps: kill the first crow that steps on them
       for (const tr of this.traps) {
@@ -360,6 +370,24 @@ window.KTC = window.KTC || {};
           e.hurt(1, a, this, crit);
           if (knock > 0 && !e.dead) { const kb = knock / (e.s.mass || 1); e.x += Math.cos(a) * kb; e.y += Math.sin(a) * kb; }
         }
+      }
+      // set off powder barrels (chain reaction) and shatter light cover in the blast
+      for (const c of this.level.containers) if (c.explosive && !c.opened && !c._det && U.dist(x, y, c.x, c.y - 6) < radius + c.r) c.detonate(this);
+      for (const s of this.level.solids.slice()) if (s.breakable && U.dist(x, y, s.x + s.w / 2, s.y + s.h / 2) < radius + 12) this.damageCover(s, 99);
+    }
+
+    // destructible cover (fences, logs): chip it, then remove the solid + rubble
+    damageCover(s, dmg) {
+      if (!s.breakable || s.hp <= 0) return;
+      s.hp -= dmg;
+      this.particles.burst(s.x + s.w / 2, s.y + s.h / 2 - 4, 4, { color: ['#6f4d36', '#5b3f2c', '#3a281c'], speedMin: 20, speedMax: 90, lifeMin: 0.2, lifeMax: 0.45, size: 2, grav: 120 });
+      if (s.hp <= 0) {
+        const i = this.level.solids.indexOf(s);
+        if (i >= 0) this.level.solids.splice(i, 1);
+        if (s.prop) s.prop.broken = true;
+        this.particles.burst(s.x + s.w / 2, s.y + s.h / 2 - 4, 9, { color: ['#6f4d36', '#5b3f2c'], speedMin: 30, speedMax: 140, lifeMin: 0.3, lifeMax: 0.6, size: 2, grav: 160 });
+        this.particles.dust(s.x + s.w / 2, s.y + s.h / 2, 4);
+        KTC.Audio.hit();
       }
     }
 

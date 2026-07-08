@@ -165,7 +165,7 @@ window.KTC = window.KTC || {};
       this.nearContainer = null;
       let bestD2 = 32 * 32;
       for (const c of game.level.containers) {
-        if (c.opened) continue;
+        if (c.opened || c.explosive) continue;   // powder barrels are shot, not looted
         const d2 = U.dist2(this.x, this.y, c.x, c.y - 4);
         if (d2 < bestD2) { bestD2 = d2; this.nearContainer = c; }
       }

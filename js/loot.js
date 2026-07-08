@@ -150,13 +150,27 @@ window.KTC = window.KTC || {};
   class Container {
     constructor(x, y, type) {
       this.x = x; this.y = y;
-      this.type = type;             // 'crate' | 'barrel' | 'well' | 'wagon'
+      this.type = type;             // 'crate' | 'barrel' | 'well' | 'wagon' | 'powderbarrel'
       this.opened = false;
       // hold-E channel length: richer caches take longer (more exposure)
       this.channelTime = { crate: 0.9, barrel: 0.9, wagon: 1.6, well: 2.0, cache: 1.6, weaponrack: 1.4 }[type] || 0.9;
       this.lootProgress = 0;
       this.r = type === 'well' ? 16 : type === 'wagon' ? 16 : 9;
       this.hh = type === 'well' ? 34 : type === 'weaponrack' ? 18 : 15;
+      // powder barrels aren't looted — they detonate when shot or caught in a blast
+      this.explosive = type === 'powderbarrel' ? 48 : 0;
+      this._det = false;
+    }
+
+    // set off an explosive barrel: a blast (+ knockback + a little fire) that
+    // chains to other barrels through game.explode.
+    detonate(game) {
+      if (this._det || this.opened) return;
+      this._det = true; this.opened = true; this.lootProgress = 0;
+      game.explode(this.x, this.y - 6, this.explosive, false, 26);
+      game.addFireZone(this.x, this.y);
+      // barrels shed a little scrap when they blow
+      if (U.chance(0.6)) game.pickups.push(new Pickup(this.x, this.y - 6, 'material', U.randInt(1, 2), 'scrap'));
     }
 
     open(game) {
@@ -226,6 +240,9 @@ window.KTC = window.KTC || {};
       } else if (this.type === 'wagon') {
         S.wagon(ctx);
         if (this.opened) { ctx.globalAlpha = 0.5; S.px(ctx, -10, -12, 20, 2, '#1c150d'); }
+      } else if (this.type === 'powderbarrel') {
+        if (this.opened) { ctx.globalAlpha = 0.6; S.px(ctx, -6, -4, 12, 4, '#2a1c14'); }
+        else S.powderbarrel(ctx);
       } else if (this.type === 'barrel') {
         S.barrel(ctx);
       } else {
