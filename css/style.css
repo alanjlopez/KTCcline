@@ -88,6 +88,13 @@ html, body {
   position: absolute; top: 0; height: 100%;
   background: rgba(120,220,140,0.5); border-left: 1px solid #9fe6b0; border-right: 1px solid #9fe6b0;
 }
+.heat-bar {
+  position: relative; width: 100%; height: 4px; margin-top: 2px;
+  background: #2a251c; border-radius: 2px; overflow: hidden;
+}
+.heat-fill { height: 100%; width: 0%; background: linear-gradient(90deg,#e0a03a,#e0642a); transition: width .06s; }
+.heat-bar.over .heat-fill { background: #ff4a3a; animation: heatpulse .35s steps(2) infinite; }
+@keyframes heatpulse { 0%{opacity:1} 50%{opacity:.5} 100%{opacity:1} }
 
 /* colorblind-friendly tweak: brighter, higher-contrast accents */
 :root.colorblind {

@@ -98,6 +98,8 @@ window.KTC = window.KTC || {};
     die(game, angle, crit) {
       this.dead = true;
       const a = angle == null ? this.aim + Math.PI : angle;
+      // a crow that dies on fire sets its neighbours alight — fire spreads
+      if (this._wasBurning) this.igniteNeighbours(game);
       // a bomber detonates when it dies (guard against the blast re-killing it)
       if (this.type === 'bomber' && !this._boomed) { this._boomed = true; game.explode(this.x, this.y - this.hh * 0.4, this.s.blast, false); }
       game.particles.blood(this.x, this.y - this.hh * 0.4, a);
@@ -126,20 +128,41 @@ window.KTC = window.KTC || {};
       if (this.dead) return;
       if (kind === 'stun' && this.boss) return;
       this.status[kind] = Math.max(this.status[kind] || 0, dur);
+      if (kind === 'burn') this._wasBurning = true;   // so a burning death spreads
       if (kind === 'mark' && data && data.by) this.status.markBy = data.by;
     }
 
-    tickStatus(dt) {
+    // fire jumps to living crows huddled nearby (bounded — the flame burns out)
+    igniteNeighbours(game) {
+      for (const o of game.enemies) {
+        if (o === this || o.dead || o.boss) continue;
+        if (o.status.burn > 0) continue;   // already alight — don't refresh forever
+        if (U.dist(this.x, this.y, o.x, o.y) < 40 + o.r) {
+          o.applyStatus('burn', 1.1);
+          game.particles.spawn(o.x, o.y - o.hh * 0.5, { vx: 0, vy: -30, life: 0.4, size: 2, color: '#f0a040' });
+        }
+      }
+    }
+
+    tickStatus(dt, game) {
       const st = this.status;
       if (st.stun > 0) st.stun -= dt;
       if (st.mark > 0) st.mark -= dt;
-      if (st.burn > 0) st.burn -= dt;
+      if (st.burn > 0) {
+        const was = st.burn;
+        st.burn -= dt;
+        if (game && U.chance(dt * 26)) game.particles.spawn(this.x + U.rand(-4, 4), this.y - this.hh * U.rand(0.3, 0.9), { vx: U.rand(-8, 8), vy: -46, life: 0.45, size: 2.5, color: U.pick(['#f6d060', '#f0a040', '#e0642a']) });
+        if (was > 0 && st.burn <= 0) this._burnedOut = true;   // fire finished it off
+      }
     }
 
     update(dt, game) {
       if (this.hurtT > 0) this.hurtT -= dt;
       if (this.cdT > 0) this.cdT -= dt;
-      this.tickStatus(dt);
+      this.tickStatus(dt, game);
+
+      // fire that outlasts its victim: a burned-out crow drops and spreads
+      if (this._burnedOut && !this.dead && !this.boss) { this.die(game, null, false); return; }
 
       const p = game.player;
       const d = U.dist(this.x, this.y, p.x, p.y);
@@ -452,6 +475,8 @@ window.KTC = window.KTC || {};
         ctx.filter = 'brightness(2.6)';                            // pre-strike flash
       } else if (this.hurtT > 0) {
         ctx.filter = 'brightness(2.2) saturate(0.4)';
+      } else if (this.status.burn > 0) {
+        ctx.filter = 'brightness(1.5) sepia(0.7) saturate(3) hue-rotate(-18deg)';  // alight
       }
       S.crow(ctx, {
         type: this.boss ? 'brute' : this.type === 'shielder' || this.type === 'bomber' ? 'rusher' : this.type,
@@ -480,6 +505,23 @@ window.KTC = window.KTC || {};
         const w = 44, top = this.y - this.hh * 1.9 - 6;
         ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(this.x - w / 2 - 1, top - 1, w + 2, 5);
         ctx.fillStyle = '#b5433a'; ctx.fillRect(this.x - w / 2, top, w * (this.hp / this.maxHp), 3);
+      }
+
+      // marked: a thin reticle brackets the crow (its kill pays double)
+      if (this.status.mark > 0 && !this.dead) {
+        const my = this.y - this.hh * 0.5, rr = this.r + 5;
+        ctx.save();
+        ctx.globalAlpha = 0.6 + 0.3 * Math.sin(performance.now() / 120);
+        ctx.strokeStyle = '#ff5a4a'; ctx.lineWidth = 1;
+        for (let q = 0; q < 4; q++) {
+          const ax = q < 2 ? -1 : 1, ay = q % 2 ? 1 : -1;
+          ctx.beginPath();
+          ctx.moveTo(this.x + ax * rr, my + ay * rr - ay * 3);
+          ctx.lineTo(this.x + ax * rr, my + ay * rr);
+          ctx.lineTo(this.x + ax * rr - ax * 3, my + ay * rr);
+          ctx.stroke();
+        }
+        ctx.restore();
       }
 
       // stagger: little stars circle the crow's head

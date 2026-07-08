@@ -63,9 +63,11 @@ window.KTC = window.KTC || {};
       this.reloadMark.style.width = ((RW.windowEnd - RW.windowStart) * 100) + '%';
       this.reloadBar = el('div', { class: 'reload-bar' }, [this.reloadFill, this.reloadMark]);
       this.weaponName = el('div', { class: 'weapon-name' });
+      this.heatFill = el('div', { class: 'heat-fill' });
+      this.heatBar = el('div', { class: 'heat-bar hidden' }, [this.heatFill]);
       const wpanel = el('div', { class: 'hud-panel weapon-panel' }, [
         this.gunBadge,
-        el('div', { class: 'ammo-wrap' }, [this.ammoRow, this.reloadBar, this.weaponName]),
+        el('div', { class: 'ammo-wrap' }, [this.ammoRow, this.reloadBar, this.heatBar, this.weaponName]),
       ]);
 
       this.killsEl = el('div', { class: 'hud-kills', text: '0' });
@@ -540,7 +542,14 @@ window.KTC = window.KTC || {};
       if (p.reloading) { this.reloadBar.classList.add('show'); this.reloadFill.style.width = (100 * (1 - p.reloadT / p.reloadTotal)) + '%'; }
       else this.reloadBar.classList.remove('show');
       const wdef = p.weapon();
-      this.weaponName.textContent = wdef.name + (wdef.mech ? ' · ' + wdef.mech : '') + (p.reloading ? ' — RELOADING' : (p.ammo === 0 ? ' — EMPTY' : ''));
+      // repeater heat gauge — only shown for the overheating iron
+      if (wdef.quirk === 'overheat') {
+        this.heatBar.classList.remove('hidden');
+        this.heatFill.style.width = (100 * p.heat) + '%';
+        this.heatBar.classList.toggle('over', p.overheated);
+      } else this.heatBar.classList.add('hidden');
+      const marks = p.marksmanReady ? ' — AIMED' : '';
+      this.weaponName.textContent = wdef.name + (wdef.mech ? ' · ' + wdef.mech : '') + (p.reloading ? ' — RELOADING' : (p.overheated ? ' — OVERHEATED' : (p.ammo === 0 ? ' — EMPTY' : marks)));
 
       const tstamp = g.trinkets.join(',');
       if (tstamp !== this._trinketStamp) {

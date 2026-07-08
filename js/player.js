@@ -56,6 +56,10 @@ window.KTC = window.KTC || {};
       this.recoil = 0;
       this.cheatUsed = false;       // Snake Oil: one save per raid
       this.grudge = false;          // Grudge: next shot is a guaranteed explosive crit
+      this.stillT = 0;              // time held stationary (rifle marksman charge)
+      this.marksmanReady = false;   // rifle: next shot is a marked, piercing called shot
+      this.heat = 0;                // repeater overheat gauge (0..1)
+      this.overheated = false;      // repeater: locked out until it cools
       this.perfectBuffT = 0;        // active-reload speed buff
       this.item = null;             // equipped active item id
       this.itemCharges = 0;
@@ -148,6 +152,14 @@ window.KTC = window.KTC || {};
       // in the home base you only walk around — no shooting, reloading, or looting
       if (game.state === 'base') return;
 
+      // ---- gun quirks: marksman stand-still charge + repeater heat cooldown ----
+      const wq = this.weapon();
+      const moving = !!(ix || iy) || this.rolling();
+      if (wq.quirk === 'marksman' && !moving && !this.reloading) this.stillT += dt; else this.stillT = 0;
+      this.marksmanReady = wq.quirk === 'marksman' && this.stillT >= 0.5 && this.ammo > 0;
+      if (this.heat > 0) this.heat = Math.max(0, this.heat - dt * 0.6);
+      if (this.overheated && this.heat <= 0.35) this.overheated = false;
+
       // ---- looting: stand still next to a container and hold E ----
       if (this.lootStunT > 0) this.lootStunT -= dt;
       this.nearContainer = null;
@@ -197,8 +209,8 @@ window.KTC = window.KTC || {};
         }
       }
 
-      // shooting (blocked while reloading, mid-roll, or looting)
-      if (!this.reloading && !this.rolling() && !this.looting && (showdown || this.ammo > 0) && this.fireCd <= 0) {
+      // shooting (blocked while reloading, mid-roll, looting, or overheated)
+      if (!this.reloading && !this.rolling() && !this.looting && (showdown || (this.ammo > 0 && !this.overheated)) && this.fireCd <= 0) {
         const w = this.weapon();
         const padShoot = In.pad.shoot;
         const wantFire = (w.auto || showdown || padShoot) ? (In.mouse.down || padShoot) : In.mouse.clicked;
@@ -225,24 +237,36 @@ window.KTC = window.KTC || {};
       const p = w.proj;
       const grudge = this.grudge;   // Grudge: this shot is a guaranteed explosive crit
       this.grudge = false;
+      // ---- gun quirks that shape THIS shot ----
+      const lastRound = w.quirk === 'lastround' && !free && this.ammo === 1;   // revolver's final chamber
+      const marksman = this.marksmanReady && !free;                            // rifle called shot
+      if (marksman) { this.marksmanReady = false; this.stillT = 0; game.particles.text(this.x, this.y - this.hh - 6, 'AIMED', '#ff7a5a', { life: 0.6, size: 7 }); }
       const mx = this.x + Math.cos(this.aim) * 16;
       const my = this.y - 11 + Math.sin(this.aim) * 16;
       const pellets = w.pellets + m.extraProjectiles;
       const spread = w.spread + m.spreadBonus;
       for (let i = 0; i < pellets; i++) {
         const a = this.aim + U.rand(-spread, spread);
-        const crit = grudge || Math.random() < m.critChance;
+        const crit = grudge || lastRound || marksman || Math.random() < m.critChance;
         game.projectiles.push(new KTC.Projectile(mx, my, a, {
           speed: p.speed, damage: 1, size: p.size, team: 'player', range: p.range * m.rangeMul,
-          pierce: (p.pierce || 0) + m.pierce,
+          pierce: (p.pierce || 0) + m.pierce + (marksman ? 1 : 0),
           bounces: (p.bounces || 0) + m.bounces,
           explosive: Math.max(p.explosive || 0, m.explosive, grudge ? 30 : 0),
           homing: Math.max(p.homing || 0, m.homing),
           chain: (p.chain || 0) + m.chain,
+          knockback: p.knockback || 0,
+          burn: p.burn || 0,
+          mark: (marksman || p.mark) ? 4 : 0,
           crit,
         }));
       }
       if (!free) this.ammo--;
+      // repeater cooks the barrel; hold too long and it jams until it cools
+      if (w.quirk === 'overheat' && !free) {
+        this.heat = Math.min(1, this.heat + 0.085);
+        if (this.heat >= 1 && !this.overheated) { this.overheated = true; KTC.Audio.hit(); game.particles.text(this.x, this.y - this.hh - 6, 'OVERHEAT!', '#ff5a4a', { life: 0.8, size: 7 }); }
+      }
       const hot = m.hotStreak && game.run.combo >= 5 ? 0.7 : 1;
       const perfect = this.perfectBuffT > 0 ? 0.82 : 1;
       this.fireCd = w.fireRate * m.fireRateMult * hot * perfect * (free ? 0.6 : 1);

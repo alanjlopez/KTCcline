@@ -31,6 +31,9 @@ window.KTC = window.KTC || {};
       this.explosive = opts.explosive || 0;   // blast radius on impact
       this.homing = opts.homing || 0;         // steering rate (rad/sec)
       this.chain = opts.chain || 0;           // lightning jumps on hit
+      this.knockback = opts.knockback || 0;   // shove survivors (shielders/boss)
+      this.burn = opts.burn || 0;             // ignite the crow (seconds)
+      this.mark = opts.mark || 0;             // brand it: amplified, richer kill
       this.crit = opts.crit || false;
 
       this.hits = new Set();                  // enemies already struck
@@ -109,11 +112,19 @@ window.KTC = window.KTC || {};
     onEnemyHit(e, game) {
       this.hits.add(e);
       if (this.explosive > 0) {
-        game.explode(this.x, this.y, this.explosive, this.crit);
+        game.explode(this.x, this.y, this.explosive, this.crit, this.knockback);
         this.dead = true;
         return;
       }
+      // brand / ignite BEFORE the killing blow so the death carries the status
+      if (this.mark > 0) e.applyStatus('mark', this.mark);
+      if (this.burn > 0) e.applyStatus('burn', this.burn);
       e.hurt(this.dmg, this.angle, game, this.crit);
+      // knockback only reads on survivors — shielders blocking, bosses, the rival
+      if (this.knockback > 0 && !e.dead) {
+        const kb = this.knockback / (e.s.mass || 1);
+        e.x += Math.cos(this.angle) * kb; e.y += Math.sin(this.angle) * kb;
+      }
       game.particles.blood(this.x, this.y, this.angle);
       if (this.chain > 0) game.chainLightning(e.x, e.y - e.hh * 0.4, this.chain, this.hits, this.crit);
 

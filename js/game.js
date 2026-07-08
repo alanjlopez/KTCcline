@@ -260,7 +260,10 @@ window.KTC = window.KTC || {};
         if (U.chance(dt * 30)) this.particles.spawn(f.x + U.rand(-f.r * 0.7, f.r * 0.7), f.y + U.rand(-f.r * 0.4, f.r * 0.4), { vx: 0, vy: -40, life: 0.5, size: 3, color: U.pick(['#f0a040', '#e07a3a', '#f6d060']) });
         if (f.tick <= 0) {
           f.tick = 0.45;
-          for (const e of this.enemies) if (!e.dead && U.dist(f.x, f.y, e.x, e.y) < f.r + e.r) e.hurt(1, U.angle(f.x, f.y, e.x, e.y), this, false);
+          for (const e of this.enemies) if (!e.dead && U.dist(f.x, f.y, e.x, e.y) < f.r + e.r) {
+            e.applyStatus('burn', 0.6);   // marks it burning so the kill spreads
+            e.hurt(1, U.angle(f.x, f.y, e.x, e.y), this, false);
+          }
         }
       }
       this.fireZones = this.fireZones.filter((f) => f.t > 0);
@@ -343,7 +346,7 @@ window.KTC = window.KTC || {};
     }
 
     // AoE that one-shots every crow in range (chain-reacts through Powder Keg).
-    explode(x, y, radius, crit) {
+    explode(x, y, radius, crit, knock) {
       this.particles.burst(x, y, 22, { color: ['#f6e0a0', '#f0c060', '#e07a3a', '#6b5a45'], speedMin: 40, speedMax: 220, lifeMin: 0.2, lifeMax: 0.55, size: 3, grav: 40 });
       this.particles.spawn(x, y, { vx: 0, vy: 0, life: 0.18, size: radius * 1.6, color: 'rgba(255,220,150,0.5)', drag: 1 });
       this.particles.shake(5, 0.22);
@@ -353,7 +356,9 @@ window.KTC = window.KTC || {};
       for (const e of this.enemies) {
         if (e.dead) continue;
         if (U.dist(x, y, e.x, e.y - e.hh * 0.4) < radius + e.r) {
-          e.hurt(1, U.angle(x, y, e.x, e.y), this, crit);
+          const a = U.angle(x, y, e.x, e.y);
+          e.hurt(1, a, this, crit);
+          if (knock > 0 && !e.dead) { const kb = knock / (e.s.mass || 1); e.x += Math.cos(a) * kb; e.y += Math.sin(a) * kb; }
         }
       }
     }
@@ -373,6 +378,7 @@ window.KTC = window.KTC || {};
         this.particles.bolt(fromX, fromY, best.x, best.y - best.hh * 0.4);
         const bx = best.x, by = best.y - best.hh * 0.4;
         best.hurt(1, U.angle(fromX, fromY, best.x, best.y), this, crit);
+        if (!best.dead) best.applyStatus('stun', 0.6);   // lightning locks up what it can't kill
         KTC.Audio.zap();
         fromX = bx; fromY = by;
       }
@@ -466,8 +472,15 @@ window.KTC = window.KTC || {};
         if (this.save.settings.damageNumbers) this.particles.text(e.x, e.y - e.hh - 6, `x${r.combo}`, '#e3c06a', { life: 0.7, size: 7 });
       }
 
-      // on-kill effects — Twin Fang runs them twice
-      const reps = this.mods.doubleOnKill ? 2 : 1;
+      // a marked (called-shot) crow pays a premium and amplifies its on-kill
+      const marked = e.status && e.status.mark > 0;
+      if (marked) {
+        this.gainGold(5);
+        this.particles.text(e.x, e.y - e.hh - 8, '✦ MARKED', '#ff7a5a', { life: 0.8, size: 7 });
+      }
+
+      // on-kill effects — Twin Fang runs them twice, a mark adds one more pass
+      const reps = (this.mods.doubleOnKill ? 2 : 1) + (marked ? 1 : 0);
       for (let i = 0; i < reps; i++) {
         if (this.mods.goldPerKill > 0) this.gainGold(this.mods.goldPerKill);
         if (this.mods.onKillExplode > 0) this.explode(e.x, e.y - e.hh * 0.4, this.mods.onKillExplode, crit);

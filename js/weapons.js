@@ -10,32 +10,32 @@ window.KTC = window.KTC || {};
 
   const WEAPONS = {
     revolver: {
-      id: 'revolver', name: 'Revolver', sprite: 'revolver', mech: '',
+      id: 'revolver', name: 'Revolver', sprite: 'revolver', mech: '', quirk: 'lastround',
       magSize: 6, fireRate: 0.26, reloadTime: 1.15, spread: 0.03, pellets: 1,
       auto: false, kick: 4, price: 0, owned: true,
       proj: { speed: 620, range: 520, size: 3 },
-      desc: 'Trusty six-shooter. One shot, one crow. Reliable at any range that matters.',
+      desc: 'Trusty six-shooter. One shot, one crow — and the LAST round in the cylinder always strikes gold.',
     },
     shotgun: {
-      id: 'shotgun', name: 'Sawn-off', sprite: 'shotgun', mech: 'spread',
+      id: 'shotgun', name: 'Sawn-off', sprite: 'shotgun', mech: 'spread', quirk: 'knockback',
       magSize: 2, fireRate: 0.5, reloadTime: 1.5, spread: 0.3, pellets: 6,
       auto: false, kick: 9, price: 140,
-      proj: { speed: 520, range: 220, size: 3 },
-      desc: 'Six pellets, six dead crows if they bunch up. Useless past spitting distance.',
+      proj: { speed: 520, range: 220, size: 3, knockback: 20 },
+      desc: 'Six pellets, six dead crows if they bunch up. The blast shoves shielders and bosses back.',
     },
     rifle: {
-      id: 'rifle', name: 'Lever Rifle', sprite: 'rifle', mech: '',
+      id: 'rifle', name: 'Lever Rifle', sprite: 'rifle', mech: '', quirk: 'marksman',
       magSize: 5, fireRate: 0.42, reloadTime: 1.35, spread: 0.008, pellets: 1,
       auto: false, kick: 5, price: 190,
       proj: { speed: 920, range: 820, size: 3 },
-      desc: 'Reaches across the whole street. Slow between shots — make each one count.',
+      desc: 'Reaches across the whole street. Stand still a beat and the next shot is a marked, piercing called shot.',
     },
     repeater: {
-      id: 'repeater', name: 'Repeater', sprite: 'repeater', mech: 'auto',
+      id: 'repeater', name: 'Repeater', sprite: 'repeater', mech: 'auto', quirk: 'overheat',
       magSize: 14, fireRate: 0.11, reloadTime: 1.9, spread: 0.1, pellets: 1,
       auto: true, kick: 2.5, price: 260,
       proj: { speed: 680, range: 400, size: 2 },
-      desc: 'Hold the trigger and hose them down. Sloppy aim, hungry cylinder, long reload.',
+      desc: 'Hold the trigger and hose them down — but the barrel overheats and jams if you never let up.',
     },
     // ---- behavior guns (found in raids, or bought at a premium) ----
     bouncer: {
@@ -53,25 +53,25 @@ window.KTC = window.KTC || {};
       desc: 'Cursed lead that curves after the nearest crow. Point in the vague direction.',
     },
     tesla: {
-      id: 'tesla', name: 'Arc Coil', sprite: 'repeater', mech: 'chain ⚡',
+      id: 'tesla', name: 'Arc Coil', sprite: 'repeater', mech: 'chain ⚡', quirk: 'shockstun',
       magSize: 10, fireRate: 0.16, reloadTime: 1.8, spread: 0.06, pellets: 1,
       auto: true, kick: 3, price: 300,
       proj: { speed: 700, range: 380, size: 2, chain: 2 },
-      desc: 'Every hit forks lightning into two more crows. Loves a crowd.',
+      desc: 'Every hit forks lightning into two more crows and briefly stuns what it can\'t kill. Loves a crowd.',
     },
     buffalo: {
-      id: 'buffalo', name: 'Buffalo Rifle', sprite: 'rifle', mech: 'pierces all',
+      id: 'buffalo', name: 'Buffalo Rifle', sprite: 'rifle', mech: 'pierces all', quirk: 'marksman',
       magSize: 3, fireRate: 0.6, reloadTime: 1.6, spread: 0.004, pellets: 1,
       auto: false, kick: 8, price: 280,
-      proj: { speed: 1100, range: 900, size: 4, pierce: 99 },
-      desc: 'Punches a hole clean through a whole line of crows. Slow, heavy, glorious.',
+      proj: { speed: 1100, range: 900, size: 4, pierce: 99, mark: true },
+      desc: 'Punches a hole clean through a whole line of crows, marking every one. Slow, heavy, glorious.',
     },
     boomstick: {
-      id: 'boomstick', name: 'Boomstick', sprite: 'shotgun', mech: 'explosive',
+      id: 'boomstick', name: 'Boomstick', sprite: 'shotgun', mech: 'explosive', quirk: 'boomknock',
       magSize: 2, fireRate: 0.7, reloadTime: 1.7, spread: 0.02, pellets: 1,
       auto: false, kick: 12, price: 320,
-      proj: { speed: 440, range: 300, size: 4, explosive: 34 },
-      desc: 'Lobs a dynamite slug that bursts on impact. Mind your own boots.',
+      proj: { speed: 440, range: 300, size: 4, explosive: 34, knockback: 40 },
+      desc: 'Lobs a dynamite slug that bursts on impact, blasting the survivors backward. Mind your own boots.',
     },
   };
 
